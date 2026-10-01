@@ -1,0 +1,3767 @@
+openapi: 3.0.3
+info:
+  title: Green Path API
+  version: 1.0.0
+  description: AI-Integrated Farm-to-Marketplace System REST API
+paths:
+  /api/schema/:
+    get:
+      operationId: schema_retrieve
+      description: |-
+        OpenApi3 schema for this API. Format can be selected via content negotiation.
+
+        - YAML: application/vnd.oai.openapi
+        - JSON: application/vnd.oai.openapi+json
+      parameters:
+      - in: query
+        name: format
+        schema:
+          type: string
+          enum:
+          - json
+          - yaml
+      - in: query
+        name: lang
+        schema:
+          type: string
+          enum:
+          - af
+          - ar
+          - ar-dz
+          - ast
+          - az
+          - be
+          - bg
+          - bn
+          - br
+          - bs
+          - ca
+          - ckb
+          - cs
+          - cy
+          - da
+          - de
+          - dsb
+          - el
+          - en
+          - en-au
+          - en-gb
+          - eo
+          - es
+          - es-ar
+          - es-co
+          - es-mx
+          - es-ni
+          - es-ve
+          - et
+          - eu
+          - fa
+          - fi
+          - fr
+          - fy
+          - ga
+          - gd
+          - gl
+          - he
+          - hi
+          - hr
+          - hsb
+          - hu
+          - hy
+          - ia
+          - id
+          - ig
+          - io
+          - is
+          - it
+          - ja
+          - ka
+          - kab
+          - kk
+          - km
+          - kn
+          - ko
+          - ky
+          - lb
+          - lt
+          - lv
+          - mk
+          - ml
+          - mn
+          - mr
+          - ms
+          - my
+          - nb
+          - ne
+          - nl
+          - nn
+          - os
+          - pa
+          - pl
+          - pt
+          - pt-br
+          - ro
+          - ru
+          - sk
+          - sl
+          - sq
+          - sr
+          - sr-latn
+          - sv
+          - sw
+          - ta
+          - te
+          - tg
+          - th
+          - tk
+          - tr
+          - tt
+          - udm
+          - ug
+          - uk
+          - ur
+          - uz
+          - vi
+          - zh-hans
+          - zh-hant
+      tags:
+      - schema
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/vnd.oai.openapi:
+              schema:
+                type: object
+                additionalProperties: {}
+            application/yaml:
+              schema:
+                type: object
+                additionalProperties: {}
+            application/vnd.oai.openapi+json:
+              schema:
+                type: object
+                additionalProperties: {}
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/admin/messages/:
+    post:
+      operationId: v1_admin_messages_create
+      description: |-
+        POST /api/v1/admin/messages/ — broadcast or individual message (FR-UA-04).
+
+        Body accepts either ``role`` (broadcast to a whole role) or ``user_ids``
+        (direct message).  One of the two is required.
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BroadcastMessage'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/BroadcastMessage'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BroadcastMessage'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/admin/pending-users/:
+    get:
+      operationId: v1_admin_pending_users_list
+      description: GET /api/v1/admin/pending-users/ — the User Admin approval queue
+        (FR-UA-01).
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedDirectoryUserList'
+          description: ''
+  /api/v1/admin/users/:
+    get:
+      operationId: v1_admin_users_list
+      description: GET /api/v1/admin/users/ — full user directory with filters (FR-UA-03).
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedDirectoryUserList'
+          description: ''
+  /api/v1/admin/users/{id}/approve/:
+    post:
+      operationId: v1_admin_users_approve_create
+      description: POST /api/v1/admin/users/{id}/approve/ (FR-UA-02, UC-05).
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/admin/users/{id}/reject/:
+    post:
+      operationId: v1_admin_users_reject_create
+      description: POST /api/v1/admin/users/{id}/reject/ with an optional reason (FR-UA-02).
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RejectUser'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/RejectUser'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/RejectUser'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/admin/users/{id}/suspend/:
+    post:
+      operationId: v1_admin_users_suspend_create
+      description: |-
+        POST /api/v1/admin/users/{id}/suspend/ — suspend or reinstate (FR-UA-03).
+
+        Only the Super Admin may act on Admin sub-role accounts.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/auth/announcement/:
+    get:
+      operationId: v1_auth_announcement_retrieve
+      description: GET /api/v1/auth/announcement/ — platform banner (FR-SA-04).
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/auth/login/:
+    post:
+      operationId: v1_auth_login_create
+      description: |-
+        POST /api/v1/auth/login/ — access token in body, refresh in cookie.
+
+        Mirrors the authentication flow in doc 5.1.6: the access token (1h) travels
+        in the JSON body and the refresh token (7d) is set as an HttpOnly cookie.
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Login'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Login'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Login'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/auth/logout/:
+    post:
+      operationId: v1_auth_logout_create
+      description: POST /api/v1/auth/logout/ — clear the refresh cookie.
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/auth/me/:
+    get:
+      operationId: v1_auth_me_retrieve
+      description: GET /api/v1/auth/me/ — current profile, role and effective permissions.
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/auth/profile/:
+    patch:
+      operationId: v1_auth_profile_partial_update
+      description: PATCH /api/v1/auth/profile/ — self-service profile fields only.
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedProfileUpdate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedProfileUpdate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedProfileUpdate'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/auth/register/:
+    post:
+      operationId: v1_auth_register_create
+      description: |-
+        POST /api/v1/auth/register/ — public registration (UC-01).
+
+        Creates a PENDING account and notifies the User Admin queue (FR-F-01,
+        FR-F-02).  Honours the Super Admin registration policy (FR-SA-04).
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/User'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/User'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/User'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+  /api/v1/auth/token/refresh/:
+    post:
+      operationId: v1_auth_token_refresh_create
+      description: POST /api/v1/auth/token/refresh/ — cookie-based silent refresh.
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/chat/channels/:
+    get:
+      operationId: v1_chat_channels_list
+      description: GET/POST /api/v1/chat/channels/ — the requester's active conversations.
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedChatChannelList'
+          description: ''
+    post:
+      operationId: v1_chat_channels_create
+      description: GET/POST /api/v1/chat/channels/ — the requester's active conversations.
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatChannel'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ChatChannel'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ChatChannel'
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatChannel'
+          description: ''
+  /api/v1/chat/channels/{channel_pk}/mark-read/:
+    post:
+      operationId: v1_chat_channels_mark_read_create
+      description: POST /api/v1/chat/channels/{channelID}/mark-read/
+      parameters:
+      - in: path
+        name: channel_pk
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/chat/channels/{channel_pk}/messages/:
+    get:
+      operationId: v1_chat_channels_messages_list
+      description: GET/POST /api/v1/chat/channels/{channelID}/messages/ — message
+        history.
+      parameters:
+      - in: path
+        name: channel_pk
+        schema:
+          type: string
+          pattern: ^[0-9a-fA-F-]+$
+        required: true
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedMessageList'
+          description: ''
+    post:
+      operationId: v1_chat_channels_messages_create
+      description: GET/POST /api/v1/chat/channels/{channelID}/messages/ — message
+        history.
+      parameters:
+      - in: path
+        name: channel_pk
+        schema:
+          type: string
+          pattern: ^[0-9a-fA-F-]+$
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Message'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Message'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Message'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+          description: ''
+  /api/v1/chat/channels/{id}/:
+    get:
+      operationId: v1_chat_channels_retrieve
+      description: GET/POST /api/v1/chat/channels/ — the requester's active conversations.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this chat channel.
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatChannel'
+          description: ''
+  /api/v1/dashboard/admin/:
+    get:
+      operationId: v1_dashboard_admin_retrieve
+      description: GET /api/v1/dashboard/admin/ — User Admin / Financial Manager overview.
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/dashboard/farmer/:
+    get:
+      operationId: v1_dashboard_farmer_retrieve
+      description: GET /api/v1/dashboard/farmer/ (FR-F-06).
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/dashboard/payments/:
+    get:
+      operationId: v1_dashboard_payments_retrieve
+      description: GET /api/v1/dashboard/payments/ — Payment Management tab summary
+        (FR-FM-01).
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/dashboard/retailer/:
+    get:
+      operationId: v1_dashboard_retailer_retrieve
+      description: |-
+        GET /api/v1/dashboard/retailer/ (FR-R-05).
+
+        Surfaces browsing activity and active communications, plus the nearest
+        wholesaler listings the retailer can discover (FR-R-02).
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/dashboard/wholesaler/:
+    get:
+      operationId: v1_dashboard_wholesaler_retrieve
+      description: GET /api/v1/dashboard/wholesaler/ (FR-W-07).
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/notifications/:
+    get:
+      operationId: v1_notifications_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedNotificationList'
+          description: ''
+  /api/v1/notifications/{id}/mark-read/:
+    post:
+      operationId: v1_notifications_mark_read_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/notifications/mark-all-read/:
+    post:
+      operationId: v1_notifications_mark_all_read_create
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/notifications/unread-count/:
+    get:
+      operationId: v1_notifications_unread_count_retrieve
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/orders/:
+    get:
+      operationId: v1_orders_list
+      description: '``/api/v1/orders/`` — procurement orders placed against farmer
+        listings.'
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedOrderList'
+          description: ''
+    post:
+      operationId: v1_orders_create
+      description: '``/api/v1/orders/`` — procurement orders placed against farmer
+        listings.'
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Order'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Order'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Order'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+          description: ''
+  /api/v1/orders/{id}/:
+    get:
+      operationId: v1_orders_retrieve
+      description: '``/api/v1/orders/`` — procurement orders placed against farmer
+        listings.'
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this order.
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+          description: ''
+  /api/v1/orders/{id}/status/:
+    post:
+      operationId: v1_orders_status_create
+      description: PATCH /api/v1/orders/{id}/status/ — advance the commercial lifecycle.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this order.
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Order'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Order'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Order'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+          description: ''
+    patch:
+      operationId: v1_orders_status_partial_update
+      description: PATCH /api/v1/orders/{id}/status/ — advance the commercial lifecycle.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this order.
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedOrder'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedOrder'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedOrder'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+          description: ''
+  /api/v1/payments/:
+    get:
+      operationId: v1_payments_list
+      description: '``/api/v1/payments/`` — Wholesalers submit, Financial Managers
+        verify.'
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedPaymentRecordList'
+          description: ''
+    post:
+      operationId: v1_payments_create
+      description: '``/api/v1/payments/`` — Wholesalers submit, Financial Managers
+        verify.'
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentRecord'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PaymentRecord'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PaymentRecord'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentRecord'
+          description: ''
+  /api/v1/payments/{id}/:
+    get:
+      operationId: v1_payments_retrieve
+      description: '``/api/v1/payments/`` — Wholesalers submit, Financial Managers
+        verify.'
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this payment record.
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentRecord'
+          description: ''
+  /api/v1/payments/{id}/dispute/:
+    post:
+      operationId: v1_payments_dispute_create
+      description: PATCH /api/v1/payments/{id}/dispute/ — irreconcilable discrepancy.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this payment record.
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentRecord'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PaymentRecord'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PaymentRecord'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentRecord'
+          description: ''
+    patch:
+      operationId: v1_payments_dispute_partial_update
+      description: PATCH /api/v1/payments/{id}/dispute/ — irreconcilable discrepancy.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this payment record.
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedPaymentRecord'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedPaymentRecord'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedPaymentRecord'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentRecord'
+          description: ''
+  /api/v1/payments/{id}/flag/:
+    post:
+      operationId: v1_payments_flag_create
+      description: PATCH /api/v1/payments/{id}/flag/ — discrepancy identified.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this payment record.
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentRecord'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PaymentRecord'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PaymentRecord'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentRecord'
+          description: ''
+    patch:
+      operationId: v1_payments_flag_partial_update
+      description: PATCH /api/v1/payments/{id}/flag/ — discrepancy identified.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this payment record.
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedPaymentRecord'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedPaymentRecord'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedPaymentRecord'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentRecord'
+          description: ''
+  /api/v1/payments/{id}/receipt/:
+    get:
+      operationId: v1_payments_receipt_retrieve
+      description: GET /api/v1/payments/{id}/receipt/ — audit receipt payload.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this payment record.
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentRecord'
+          description: ''
+  /api/v1/payments/{id}/verify/:
+    post:
+      operationId: v1_payments_verify_create
+      description: PATCH /api/v1/payments/{id}/verify/ (TC-BE-11).
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this payment record.
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentRecord'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PaymentRecord'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PaymentRecord'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentRecord'
+          description: ''
+    patch:
+      operationId: v1_payments_verify_partial_update
+      description: PATCH /api/v1/payments/{id}/verify/ (TC-BE-11).
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this payment record.
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedPaymentRecord'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedPaymentRecord'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedPaymentRecord'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentRecord'
+          description: ''
+  /api/v1/products/categories/:
+    get:
+      operationId: v1_products_categories_retrieve
+      description: GET /api/v1/products/categories/ — filter dropdown metadata.
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/products/farmer-listings/:
+    get:
+      operationId: v1_products_farmer_listings_list
+      description: 'Farmer listings: POST as Farmer, GET as Wholesaler (FR-F-04/05,
+        FR-W-02).'
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedProductList'
+          description: ''
+    post:
+      operationId: v1_products_farmer_listings_create
+      description: |-
+        Create the listing and echo the full representation.
+
+        ``ProductCreateSerializer`` only carries writable input fields, so the
+        default response would omit ``id``/``status`` — both of which the client
+        needs immediately (e.g. to upload an image to the new listing).
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductCreate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ProductCreate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ProductCreate'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductCreate'
+          description: ''
+  /api/v1/products/farmer-listings/{id}/:
+    get:
+      operationId: v1_products_farmer_listings_retrieve
+      description: 'Farmer listings: POST as Farmer, GET as Wholesaler (FR-F-04/05,
+        FR-W-02).'
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this product.
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+          description: ''
+    put:
+      operationId: v1_products_farmer_listings_update
+      description: 'Farmer listings: POST as Farmer, GET as Wholesaler (FR-F-04/05,
+        FR-W-02).'
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this product.
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Product'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Product'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Product'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+          description: ''
+    patch:
+      operationId: v1_products_farmer_listings_partial_update
+      description: 'Farmer listings: POST as Farmer, GET as Wholesaler (FR-F-04/05,
+        FR-W-02).'
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this product.
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedProduct'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedProduct'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedProduct'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+          description: ''
+    delete:
+      operationId: v1_products_farmer_listings_destroy
+      description: 'Farmer listings: POST as Farmer, GET as Wholesaler (FR-F-04/05,
+        FR-W-02).'
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this product.
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/products/farmer-listings/{id}/activate/:
+    post:
+      operationId: v1_products_farmer_listings_activate_create
+      description: 'Farmer listings: POST as Farmer, GET as Wholesaler (FR-F-04/05,
+        FR-W-02).'
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this product.
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Product'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Product'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Product'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+          description: ''
+  /api/v1/products/farmer-listings/{id}/deactivate/:
+    post:
+      operationId: v1_products_farmer_listings_deactivate_create
+      description: 'Farmer listings: POST as Farmer, GET as Wholesaler (FR-F-04/05,
+        FR-W-02).'
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this product.
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Product'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Product'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Product'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+          description: ''
+  /api/v1/products/farmer-listings/{id}/images/:
+    post:
+      operationId: v1_products_farmer_listings_images_create
+      description: POST .../{id}/images/ — multipart image upload (FR-F-04).
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this product.
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductImageUpload'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ProductImageUpload'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ProductImageUpload'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductImageUpload'
+          description: ''
+  /api/v1/products/farmer-listings/{id}/mark-sold/:
+    post:
+      operationId: v1_products_farmer_listings_mark_sold_create
+      description: 'Farmer listings: POST as Farmer, GET as Wholesaler (FR-F-04/05,
+        FR-W-02).'
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this product.
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Product'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Product'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Product'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+          description: ''
+  /api/v1/products/farmer-listings/my/:
+    get:
+      operationId: v1_products_farmer_listings_my_retrieve
+      description: GET .../my/ — the caller's own listings, all statuses (TC-BE-15).
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+          description: ''
+  /api/v1/products/wholesaler-listings/:
+    get:
+      operationId: v1_products_wholesaler_listings_list
+      description: Wholesaler listings re-listed for Retailers (FR-W-05, FR-R-02/R-03).
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedProductList'
+          description: ''
+    post:
+      operationId: v1_products_wholesaler_listings_create
+      description: |-
+        Create the listing and echo the full representation.
+
+        ``ProductCreateSerializer`` only carries writable input fields, so the
+        default response would omit ``id``/``status`` — both of which the client
+        needs immediately (e.g. to upload an image to the new listing).
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductCreate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ProductCreate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ProductCreate'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductCreate'
+          description: ''
+  /api/v1/products/wholesaler-listings/{id}/:
+    get:
+      operationId: v1_products_wholesaler_listings_retrieve
+      description: Wholesaler listings re-listed for Retailers (FR-W-05, FR-R-02/R-03).
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this product.
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+          description: ''
+    put:
+      operationId: v1_products_wholesaler_listings_update
+      description: Wholesaler listings re-listed for Retailers (FR-W-05, FR-R-02/R-03).
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this product.
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Product'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Product'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Product'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+          description: ''
+    patch:
+      operationId: v1_products_wholesaler_listings_partial_update
+      description: Wholesaler listings re-listed for Retailers (FR-W-05, FR-R-02/R-03).
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this product.
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedProduct'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedProduct'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedProduct'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+          description: ''
+    delete:
+      operationId: v1_products_wholesaler_listings_destroy
+      description: Wholesaler listings re-listed for Retailers (FR-W-05, FR-R-02/R-03).
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this product.
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/products/wholesaler-listings/{id}/activate/:
+    post:
+      operationId: v1_products_wholesaler_listings_activate_create
+      description: Wholesaler listings re-listed for Retailers (FR-W-05, FR-R-02/R-03).
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this product.
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Product'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Product'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Product'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+          description: ''
+  /api/v1/products/wholesaler-listings/{id}/deactivate/:
+    post:
+      operationId: v1_products_wholesaler_listings_deactivate_create
+      description: Wholesaler listings re-listed for Retailers (FR-W-05, FR-R-02/R-03).
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this product.
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Product'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Product'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Product'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+          description: ''
+  /api/v1/products/wholesaler-listings/{id}/images/:
+    post:
+      operationId: v1_products_wholesaler_listings_images_create
+      description: POST .../{id}/images/ — multipart image upload (FR-F-04).
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this product.
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductImageUpload'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ProductImageUpload'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ProductImageUpload'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductImageUpload'
+          description: ''
+  /api/v1/products/wholesaler-listings/{id}/mark-sold/:
+    post:
+      operationId: v1_products_wholesaler_listings_mark_sold_create
+      description: Wholesaler listings re-listed for Retailers (FR-W-05, FR-R-02/R-03).
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this product.
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Product'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Product'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Product'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+          description: ''
+  /api/v1/products/wholesaler-listings/my/:
+    get:
+      operationId: v1_products_wholesaler_listings_my_retrieve
+      description: GET .../my/ — the caller's own listings, all statuses (TC-BE-15).
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+          description: ''
+  /api/v1/reports/financial-summary/:
+    get:
+      operationId: v1_reports_financial_summary_retrieve
+      description: GET /api/v1/reports/financial-summary/ (FR-FM-03).
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/reports/financial-summary/export/:
+    get:
+      operationId: v1_reports_financial_summary_export_retrieve
+      description: |-
+        GET /api/v1/reports/financial-summary/export/?file_format=csv|pdf (FR-FM-04).
+
+        Defaults to CSV when ``file_format`` is omitted.  The parameter is named
+        ``file_format`` rather than ``format`` because DRF reserves ``?format=`` for
+        content negotiation, which would reject unknown renderer names with a 404
+        before this view ever runs.
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/reports/transaction-volume/:
+    get:
+      operationId: v1_reports_transaction_volume_retrieve
+      description: GET /api/v1/reports/transaction-volume/ — daily series for charts.
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/superadmin/accounts/:
+    get:
+      operationId: v1_superadmin_accounts_list
+      description: |-
+        CRUD over User Admin / Financial Manager accounts.
+
+        ``/api/v1/superadmin/accounts/``
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAdminAccountList'
+          description: ''
+    post:
+      operationId: v1_superadmin_accounts_create
+      description: |-
+        CRUD over User Admin / Financial Manager accounts.
+
+        ``/api/v1/superadmin/accounts/``
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminAccount'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AdminAccount'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AdminAccount'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminAccount'
+          description: ''
+  /api/v1/superadmin/accounts/{id}/:
+    get:
+      operationId: v1_superadmin_accounts_retrieve
+      description: |-
+        CRUD over User Admin / Financial Manager accounts.
+
+        ``/api/v1/superadmin/accounts/``
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this user.
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminAccount'
+          description: ''
+    put:
+      operationId: v1_superadmin_accounts_update
+      description: |-
+        CRUD over User Admin / Financial Manager accounts.
+
+        ``/api/v1/superadmin/accounts/``
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this user.
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminAccount'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AdminAccount'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AdminAccount'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminAccount'
+          description: ''
+    patch:
+      operationId: v1_superadmin_accounts_partial_update
+      description: |-
+        CRUD over User Admin / Financial Manager accounts.
+
+        ``/api/v1/superadmin/accounts/``
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this user.
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedAdminAccount'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedAdminAccount'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedAdminAccount'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminAccount'
+          description: ''
+    delete:
+      operationId: v1_superadmin_accounts_destroy
+      description: |-
+        CRUD over User Admin / Financial Manager accounts.
+
+        ``/api/v1/superadmin/accounts/``
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this user.
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/superadmin/accounts/{id}/deactivate/:
+    post:
+      operationId: v1_superadmin_accounts_deactivate_create
+      description: POST /api/v1/superadmin/accounts/{id}/deactivate/ — soft-ban.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this user.
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminAccount'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AdminAccount'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AdminAccount'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminAccount'
+          description: ''
+  /api/v1/superadmin/accounts/{id}/reinstate/:
+    post:
+      operationId: v1_superadmin_accounts_reinstate_create
+      description: POST /api/v1/superadmin/accounts/{id}/reinstate/ — undo a deactivation.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this user.
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminAccount'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AdminAccount'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AdminAccount'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminAccount'
+          description: ''
+  /api/v1/superadmin/announcement/:
+    post:
+      operationId: v1_superadmin_announcement_create
+      description: POST /api/v1/superadmin/announcement/ — push an announcement to
+        everyone.
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Announcement'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Announcement'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Announcement'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/superadmin/audit/:
+    get:
+      operationId: v1_superadmin_audit_list
+      description: GET /api/v1/superadmin/audit/ — Super Admin decision trail (FR-SA-03).
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAuditLogList'
+          description: ''
+  /api/v1/superadmin/data/:
+    get:
+      operationId: v1_superadmin_data_retrieve
+      description: GET /api/v1/superadmin/data/?resource=users|products|orders|payments|chat.
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/superadmin/health/:
+    get:
+      operationId: v1_superadmin_health_retrieve
+      description: GET /api/v1/superadmin/health/ — users, volumes and performance
+        counters.
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/superadmin/settings/:
+    get:
+      operationId: v1_superadmin_settings_retrieve
+      description: GET/PATCH /api/v1/superadmin/settings/
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+    patch:
+      operationId: v1_superadmin_settings_partial_update
+      description: GET/PATCH /api/v1/superadmin/settings/
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedPlatformSettingsUpdate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedPlatformSettingsUpdate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedPlatformSettingsUpdate'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/superadmin/users/{id}/override/:
+    post:
+      operationId: v1_superadmin_users_override_create
+      description: |-
+        POST /api/v1/superadmin/users/{id}/override/ — reverse an admin decision.
+
+        Accepts ``{"decision": "APPROVE" | "REJECT" | "SUSPEND" | "REACTIVATE"}``
+        with an optional ``reason``.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SuperAdminDecision'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SuperAdminDecision'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SuperAdminDecision'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+components:
+  schemas:
+    AccountStatusEnum:
+      enum:
+      - PENDING
+      - APPROVED
+      - REJECTED
+      - SUSPENDED
+      - DEACTIVATED
+      type: string
+      description: |-
+        * `PENDING` - Pending
+        * `APPROVED` - Approved
+        * `REJECTED` - Rejected
+        * `SUSPENDED` - Suspended
+        * `DEACTIVATED` - Deactivated
+    AdminAccount:
+      type: object
+      description: Create/modify Admin sub-role accounts (FR-SA-02).
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        full_name:
+          type: string
+          maxLength: 255
+        email:
+          type: string
+          format: email
+          maxLength: 255
+        password:
+          type: string
+          writeOnly: true
+          minLength: 8
+        phone:
+          type: string
+          maxLength: 20
+        location:
+          type: string
+          maxLength: 255
+        role:
+          $ref: '#/components/schemas/RoleEnum'
+        role_display:
+          type: string
+          readOnly: true
+        status:
+          $ref: '#/components/schemas/AccountStatusEnum'
+        is_staff:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - email
+      - full_name
+      - id
+      - role_display
+    Announcement:
+      type: object
+      description: Body of POST /api/v1/superadmin/announcement/.
+      properties:
+        message:
+          type: string
+      required:
+      - message
+    AuditLog:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        actor:
+          type: string
+          format: uuid
+          readOnly: true
+          nullable: true
+        actor_name:
+          type: string
+          readOnly: true
+        action:
+          type: string
+          readOnly: true
+        target:
+          type: string
+          readOnly: true
+        detail:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - action
+      - actor
+      - actor_name
+      - created_at
+      - detail
+      - id
+      - target
+    BroadcastMessage:
+      type: object
+      description: Body of POST /api/v1/admin/messages/.
+      properties:
+        message:
+          type: string
+        role:
+          $ref: '#/components/schemas/RoleEnum'
+        user_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+      required:
+      - message
+    CategoryEnum:
+      enum:
+      - Vegetables
+      - Fruits
+      - Grains
+      - Pulses
+      - Spices
+      - Root Crops
+      - Other
+      type: string
+      description: |-
+        * `Vegetables` - Vegetables
+        * `Fruits` - Fruits
+        * `Grains` - Grains
+        * `Pulses` - Pulses
+        * `Spices` - Spices
+        * `Root Crops` - Root Crops
+        * `Other` - Other
+    ChatChannel:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        participants:
+          type: array
+          items:
+            $ref: '#/components/schemas/PublicUser'
+          readOnly: true
+        participant_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+            writeOnly: true
+          writeOnly: true
+        related_product:
+          type: string
+          format: uuid
+          nullable: true
+        related_product_title:
+          type: string
+          readOnly: true
+        last_message_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        last_message:
+          type: object
+          additionalProperties: {}
+          nullable: true
+          readOnly: true
+        unread_count:
+          type: integer
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - last_message
+      - last_message_at
+      - participants
+      - related_product_title
+      - unread_count
+    DecisionEnum:
+      enum:
+      - APPROVE
+      - REJECT
+      - SUSPEND
+      - REACTIVATE
+      type: string
+      description: |-
+        * `APPROVE` - APPROVE
+        * `REJECT` - REJECT
+        * `SUSPEND` - SUSPEND
+        * `REACTIVATE` - REACTIVATE
+    DirectoryUser:
+      type: object
+      description: User Admin / Super Admin view of an account (FR-UA-01, FR-SA-01).
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        full_name:
+          type: string
+          maxLength: 255
+        email:
+          type: string
+          format: email
+          maxLength: 255
+        phone:
+          type: string
+          maxLength: 20
+        location:
+          type: string
+          maxLength: 255
+        role:
+          $ref: '#/components/schemas/RoleEnum'
+        role_display:
+          type: string
+          readOnly: true
+        status:
+          $ref: '#/components/schemas/AccountStatusEnum'
+        status_display:
+          type: string
+          readOnly: true
+        rejection_reason:
+          type: string
+        privacy_policy_accepted:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - email
+      - full_name
+      - id
+      - role_display
+      - status_display
+      - updated_at
+    Login:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          writeOnly: true
+      required:
+      - email
+      - password
+    Message:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        channel:
+          type: string
+          format: uuid
+          readOnly: true
+        sender:
+          type: string
+          format: uuid
+          readOnly: true
+        sender_name:
+          type: string
+          readOnly: true
+        content:
+          type: string
+        sent_at:
+          type: string
+          format: date-time
+          readOnly: true
+        is_read:
+          type: boolean
+          readOnly: true
+      required:
+      - channel
+      - content
+      - id
+      - is_read
+      - sender
+      - sender_name
+      - sent_at
+    Notification:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        type:
+          allOf:
+          - $ref: '#/components/schemas/TypeEnum'
+          readOnly: true
+        type_display:
+          type: string
+          readOnly: true
+        message:
+          type: string
+          readOnly: true
+        is_read:
+          type: boolean
+          readOnly: true
+        actor:
+          type: string
+          format: uuid
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - actor
+      - created_at
+      - id
+      - is_read
+      - message
+      - type
+      - type_display
+    Order:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        reference:
+          type: string
+          readOnly: true
+        wholesaler:
+          type: string
+          format: uuid
+          readOnly: true
+        wholesaler_name:
+          type: string
+          readOnly: true
+        farmer:
+          type: string
+          format: uuid
+          readOnly: true
+        farmer_name:
+          type: string
+          readOnly: true
+        product:
+          type: string
+          format: uuid
+        product_title:
+          type: string
+          readOnly: true
+        quantity:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        total_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+          readOnly: true
+        total:
+          type: string
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/OrderStatusEnum'
+          readOnly: true
+        status_display:
+          type: string
+          readOnly: true
+        allowed_transitions:
+          type: array
+          items:
+            type: string
+          readOnly: true
+        date:
+          type: string
+          format: date-time
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - allowed_transitions
+      - created_at
+      - date
+      - farmer
+      - farmer_name
+      - id
+      - product
+      - product_title
+      - quantity
+      - reference
+      - status
+      - status_display
+      - total
+      - total_amount
+      - updated_at
+      - wholesaler
+      - wholesaler_name
+    OrderStatusEnum:
+      enum:
+      - Processing
+      - Confirmed
+      - Shipped
+      - Delivered
+      - Cancelled
+      type: string
+      description: |-
+        * `Processing` - Processing
+        * `Confirmed` - Confirmed
+        * `Shipped` - Shipped
+        * `Delivered` - Delivered
+        * `Cancelled` - Cancelled
+    PaginatedAdminAccountList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminAccount'
+    PaginatedAuditLogList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditLog'
+    PaginatedChatChannelList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatChannel'
+    PaginatedDirectoryUserList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/DirectoryUser'
+    PaginatedMessageList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Message'
+    PaginatedNotificationList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Notification'
+    PaginatedOrderList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Order'
+    PaginatedPaymentRecordList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/PaymentRecord'
+    PaginatedProductList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Product'
+    PatchedAdminAccount:
+      type: object
+      description: Create/modify Admin sub-role accounts (FR-SA-02).
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        full_name:
+          type: string
+          maxLength: 255
+        email:
+          type: string
+          format: email
+          maxLength: 255
+        password:
+          type: string
+          writeOnly: true
+          minLength: 8
+        phone:
+          type: string
+          maxLength: 20
+        location:
+          type: string
+          maxLength: 255
+        role:
+          $ref: '#/components/schemas/RoleEnum'
+        role_display:
+          type: string
+          readOnly: true
+        status:
+          $ref: '#/components/schemas/AccountStatusEnum'
+        is_staff:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+    PatchedOrder:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        reference:
+          type: string
+          readOnly: true
+        wholesaler:
+          type: string
+          format: uuid
+          readOnly: true
+        wholesaler_name:
+          type: string
+          readOnly: true
+        farmer:
+          type: string
+          format: uuid
+          readOnly: true
+        farmer_name:
+          type: string
+          readOnly: true
+        product:
+          type: string
+          format: uuid
+        product_title:
+          type: string
+          readOnly: true
+        quantity:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        total_amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+          readOnly: true
+        total:
+          type: string
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/OrderStatusEnum'
+          readOnly: true
+        status_display:
+          type: string
+          readOnly: true
+        allowed_transitions:
+          type: array
+          items:
+            type: string
+          readOnly: true
+        date:
+          type: string
+          format: date-time
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+    PatchedPaymentRecord:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        display_id:
+          type: string
+          readOnly: true
+        submitted_by:
+          type: string
+          format: uuid
+        submitted_by_id:
+          type: string
+          format: uuid
+          readOnly: true
+        wholesaler:
+          type: string
+          readOnly: true
+        wholesaler_id:
+          type: string
+          format: uuid
+          readOnly: true
+        farmer:
+          type: string
+          format: uuid
+        farmer_name:
+          type: string
+          readOnly: true
+        product:
+          type: string
+          format: uuid
+        product_title:
+          type: string
+          readOnly: true
+        amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+        total:
+          type: string
+          readOnly: true
+        payment_method:
+          $ref: '#/components/schemas/PaymentMethodEnum'
+        method_display:
+          type: string
+          readOnly: true
+        reference_number:
+          type: string
+          maxLength: 255
+        status:
+          allOf:
+          - $ref: '#/components/schemas/PaymentStatusEnum'
+          readOnly: true
+        status_display:
+          type: string
+          readOnly: true
+        verified_by:
+          type: string
+          format: uuid
+          readOnly: true
+          nullable: true
+        verified_by_name:
+          type: string
+          readOnly: true
+        notes:
+          type: string
+          readOnly: true
+        submitted_at:
+          type: string
+          format: date-time
+          readOnly: true
+        submitted:
+          type: string
+          format: date-time
+          readOnly: true
+        verified_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+    PatchedPlatformSettingsUpdate:
+      type: object
+      description: Body of PATCH /api/v1/superadmin/settings/ (every field optional).
+      properties:
+        registration_open:
+          type: boolean
+        require_approval:
+          type: boolean
+        announcement:
+          type: string
+        maintenance_mode:
+          type: boolean
+    PatchedProduct:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        title:
+          type: string
+          maxLength: 255
+        description:
+          type: string
+        category:
+          $ref: '#/components/schemas/CategoryEnum'
+        category_display:
+          type: string
+          readOnly: true
+        quantity:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        unit_of_measure:
+          $ref: '#/components/schemas/UnitOfMeasureEnum'
+        unit_display:
+          type: string
+          readOnly: true
+        price_per_unit:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        status:
+          $ref: '#/components/schemas/ProductStatusEnum'
+        status_display:
+          type: string
+          readOnly: true
+        product_type:
+          allOf:
+          - $ref: '#/components/schemas/ProductTypeEnum'
+          readOnly: true
+        owner:
+          type: string
+          format: uuid
+          readOnly: true
+        owner_name:
+          type: string
+          readOnly: true
+        owner_location:
+          type: string
+          readOnly: true
+        owner_role:
+          type: string
+          readOnly: true
+        owner_latitude:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,3}(?:\.\d{0,6})?$
+          readOnly: true
+        owner_longitude:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,3}(?:\.\d{0,6})?$
+          readOnly: true
+        images:
+          readOnly: true
+        is_owner:
+          type: boolean
+          readOnly: true
+        distance_km:
+          type: number
+          format: double
+          nullable: true
+          readOnly: true
+        total_value:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+    PatchedProfileUpdate:
+      type: object
+      description: Self-service profile edit. Role and status are never client-writable.
+      properties:
+        full_name:
+          type: string
+          maxLength: 255
+        phone:
+          type: string
+          maxLength: 20
+        location:
+          type: string
+          maxLength: 255
+        latitude:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,3}(?:\.\d{0,6})?$
+          nullable: true
+        longitude:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,3}(?:\.\d{0,6})?$
+          nullable: true
+    PaymentMethodEnum:
+      enum:
+      - CBE Birr
+      - Telebirr
+      - Bank Transfer
+      - Chapa
+      - Cash
+      type: string
+      description: |-
+        * `CBE Birr` - CBE Birr
+        * `Telebirr` - Telebirr
+        * `Bank Transfer` - Bank Transfer
+        * `Chapa` - Chapa
+        * `Cash` - Cash
+    PaymentRecord:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        display_id:
+          type: string
+          readOnly: true
+        submitted_by:
+          type: string
+          format: uuid
+        submitted_by_id:
+          type: string
+          format: uuid
+          readOnly: true
+        wholesaler:
+          type: string
+          readOnly: true
+        wholesaler_id:
+          type: string
+          format: uuid
+          readOnly: true
+        farmer:
+          type: string
+          format: uuid
+        farmer_name:
+          type: string
+          readOnly: true
+        product:
+          type: string
+          format: uuid
+        product_title:
+          type: string
+          readOnly: true
+        amount:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,12}(?:\.\d{0,2})?$
+        total:
+          type: string
+          readOnly: true
+        payment_method:
+          $ref: '#/components/schemas/PaymentMethodEnum'
+        method_display:
+          type: string
+          readOnly: true
+        reference_number:
+          type: string
+          maxLength: 255
+        status:
+          allOf:
+          - $ref: '#/components/schemas/PaymentStatusEnum'
+          readOnly: true
+        status_display:
+          type: string
+          readOnly: true
+        verified_by:
+          type: string
+          format: uuid
+          readOnly: true
+          nullable: true
+        verified_by_name:
+          type: string
+          readOnly: true
+        notes:
+          type: string
+          readOnly: true
+        submitted_at:
+          type: string
+          format: date-time
+          readOnly: true
+        submitted:
+          type: string
+          format: date-time
+          readOnly: true
+        verified_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+      required:
+      - amount
+      - display_id
+      - farmer
+      - farmer_name
+      - id
+      - method_display
+      - notes
+      - product
+      - product_title
+      - status
+      - status_display
+      - submitted
+      - submitted_at
+      - submitted_by
+      - submitted_by_id
+      - total
+      - verified_at
+      - verified_by
+      - verified_by_name
+      - wholesaler
+      - wholesaler_id
+    PaymentStatusEnum:
+      enum:
+      - PENDING
+      - VERIFIED
+      - FLAGGED
+      - DISPUTED
+      type: string
+      description: |-
+        * `PENDING` - Pending
+        * `VERIFIED` - Verified
+        * `FLAGGED` - Flagged
+        * `DISPUTED` - Disputed
+    Product:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        title:
+          type: string
+          maxLength: 255
+        description:
+          type: string
+        category:
+          $ref: '#/components/schemas/CategoryEnum'
+        category_display:
+          type: string
+          readOnly: true
+        quantity:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        unit_of_measure:
+          $ref: '#/components/schemas/UnitOfMeasureEnum'
+        unit_display:
+          type: string
+          readOnly: true
+        price_per_unit:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        status:
+          $ref: '#/components/schemas/ProductStatusEnum'
+        status_display:
+          type: string
+          readOnly: true
+        product_type:
+          allOf:
+          - $ref: '#/components/schemas/ProductTypeEnum'
+          readOnly: true
+        owner:
+          type: string
+          format: uuid
+          readOnly: true
+        owner_name:
+          type: string
+          readOnly: true
+        owner_location:
+          type: string
+          readOnly: true
+        owner_role:
+          type: string
+          readOnly: true
+        owner_latitude:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,3}(?:\.\d{0,6})?$
+          readOnly: true
+        owner_longitude:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,3}(?:\.\d{0,6})?$
+          readOnly: true
+        images:
+          readOnly: true
+        is_owner:
+          type: boolean
+          readOnly: true
+        distance_km:
+          type: number
+          format: double
+          nullable: true
+          readOnly: true
+        total_value:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - category_display
+      - created_at
+      - distance_km
+      - id
+      - images
+      - is_owner
+      - owner
+      - owner_latitude
+      - owner_location
+      - owner_longitude
+      - owner_name
+      - owner_role
+      - price_per_unit
+      - product_type
+      - quantity
+      - status_display
+      - title
+      - total_value
+      - unit_display
+      - updated_at
+    ProductCreate:
+      type: object
+      description: Farmer / Wholesaler listing creation (FR-F-04, FR-W-05).
+      properties:
+        title:
+          type: string
+          maxLength: 255
+        description:
+          type: string
+        category:
+          $ref: '#/components/schemas/CategoryEnum'
+        quantity:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        unit_of_measure:
+          $ref: '#/components/schemas/UnitOfMeasureEnum'
+        price_per_unit:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,2})?$
+        images: {}
+      required:
+      - price_per_unit
+      - quantity
+      - title
+    ProductImageUpload:
+      type: object
+      description: Multi-part image upload appended to a listing's ``images`` list.
+      properties:
+        image:
+          type: string
+          format: uri
+      required:
+      - image
+    ProductStatusEnum:
+      enum:
+      - DRAFT
+      - ACTIVE
+      - INACTIVE
+      - SOLD
+      - DELETED
+      type: string
+      description: |-
+        * `DRAFT` - Draft
+        * `ACTIVE` - Active
+        * `INACTIVE` - Inactive
+        * `SOLD` - Sold
+        * `DELETED` - Deleted
+    ProductTypeEnum:
+      enum:
+      - FARMER_LISTING
+      - WHOLESALER_LISTING
+      type: string
+      description: |-
+        * `FARMER_LISTING` - Farmer Listing
+        * `WHOLESALER_LISTING` - Wholesaler Listing
+    PublicUser:
+      type: object
+      description: Counterparty view. Excludes email/coordinates to protect privacy
+        (4.10).
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        full_name:
+          type: string
+          maxLength: 255
+        phone:
+          type: string
+          maxLength: 20
+        location:
+          type: string
+          maxLength: 255
+        role:
+          $ref: '#/components/schemas/RoleEnum'
+        role_display:
+          type: string
+          readOnly: true
+        status:
+          $ref: '#/components/schemas/AccountStatusEnum'
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - full_name
+      - id
+      - role_display
+    RejectUser:
+      type: object
+      description: Body of POST /api/v1/admin/users/{id}/reject/.
+      properties:
+        reason:
+          type: string
+          default: ''
+    RoleEnum:
+      enum:
+      - FARMER
+      - WHOLESALER
+      - RETAILER
+      - USER_ADMIN
+      - FINANCIAL_MANAGER
+      - SUPER_ADMIN
+      type: string
+      description: |-
+        * `FARMER` - Farmer
+        * `WHOLESALER` - Wholesaler
+        * `RETAILER` - Retailer
+        * `USER_ADMIN` - User Admin
+        * `FINANCIAL_MANAGER` - Financial Manager
+        * `SUPER_ADMIN` - Super Admin
+    SuperAdminDecision:
+      type: object
+      description: Body of POST /api/v1/superadmin/users/{id}/override/.
+      properties:
+        decision:
+          $ref: '#/components/schemas/DecisionEnum'
+        reason:
+          type: string
+          default: ''
+      required:
+      - decision
+    TypeEnum:
+      enum:
+      - REGISTRATION
+      - APPROVAL
+      - REJECTION
+      - MESSAGE
+      - PAYMENT
+      - ORDER
+      - PRODUCT
+      - SYSTEM
+      type: string
+      description: |-
+        * `REGISTRATION` - Registration
+        * `APPROVAL` - Approval
+        * `REJECTION` - Rejection
+        * `MESSAGE` - Message
+        * `PAYMENT` - Payment
+        * `ORDER` - Order
+        * `PRODUCT` - Product
+        * `SYSTEM` - System
+    UnitOfMeasureEnum:
+      enum:
+      - kg
+      - quintal
+      - ton
+      - piece
+      - crate
+      - bunch
+      - litre
+      type: string
+      description: |-
+        * `kg` - Kilogram
+        * `quintal` - Quintal
+        * `ton` - Metric ton
+        * `piece` - Piece
+        * `crate` - Crate
+        * `bunch` - Bunch
+        * `litre` - Litre
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        full_name:
+          type: string
+          maxLength: 255
+        email:
+          type: string
+          format: email
+          maxLength: 255
+        password:
+          type: string
+          writeOnly: true
+          minLength: 8
+        phone:
+          type: string
+          maxLength: 20
+        location:
+          type: string
+          maxLength: 255
+        latitude:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,3}(?:\.\d{0,6})?$
+          nullable: true
+        longitude:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,3}(?:\.\d{0,6})?$
+          nullable: true
+        role:
+          $ref: '#/components/schemas/RoleEnum'
+        status:
+          allOf:
+          - $ref: '#/components/schemas/AccountStatusEnum'
+          readOnly: true
+        role_display:
+          type: string
+          readOnly: true
+        status_display:
+          type: string
+          readOnly: true
+        rejection_reason:
+          type: string
+          readOnly: true
+        privacy_policy_accepted:
+          type: boolean
+        permissions:
+          type: array
+          items:
+            type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - email
+      - full_name
+      - id
+      - password
+      - permissions
+      - rejection_reason
+      - role_display
+      - status
+      - status_display
+      - updated_at
+  securitySchemes:
+    jwtAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

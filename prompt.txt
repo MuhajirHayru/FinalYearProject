@@ -1,0 +1,160 @@
+PROJECT: GreenPath — AI-Integrated Farm-to-Marketplace System
+Build a complete, working, full-stack web application (not a mockup, not
+hardcoded/mocked data) implementing the specification below.
+
+## STACK
+- Backend: Django + Django REST Framework, SQLite as the database
+  (Django's default dev DB — no PostgreSQL, no manual DB setup required).
+- Auth: JWT (access token ~1hr, refresh token ~7 days via HttpOnly cookie),
+  using djangorestframework-simplejwt.
+- Frontend: React + TypeScript + Tailwind CSS.
+- Realtime chat: Django Channels (or polling fallback if Channels/Redis is
+  unavailable) for the in-platform chat.
+- Everything must be dynamic: all dashboards, lists, and tables render from
+  live API data backed by the SQLite database — no static/sample JSON.
+
+## FRONTEND DESIGN SOURCE
+Match, screen-for-screen, the wireframes embedded in the project document
+(Chapter 4.9, Figures 4.6–4.10):
+- Figure 4.6 — Farmer Dashboard: green left sidebar (Dashboard, Post New
+  Product, My Listings, Messages, Notifications, Profile, Settings,
+  Logout); top bar with page title, bell/notification badge, user chip;
+  3 summary cards (Total Active Listings, Total Products Sold, Unread
+  Messages), each with an icon, big number, and "View X →" link; a
+  two-column body: "Recent Activity" feed (icon + text + timestamp) and
+  "My Active Listings" table (Product, Quantity, Price/Unit, Status pill,
+  Actions = view/edit/delete icons).
+- Figure 4.7 — Wholesaler Marketplace/Dashboard: same shell, sidebar items
+  Dashboard, Browse Products, My Orders, Messages, Notifications, Favorite
+  Sellers, Profile, Settings, Logout; 3 summary cards (Total Orders, Total
+  Spent, Favorite Sellers); "Recent Activity" + "My Recent Orders" table
+  (Order ID, Seller, Date, Total, colored Status pill, view action); a
+  "Recommended Products" row of product cards (image, name, seller, price,
+  "View Product" button).
+- Figure 4.8 — Chat interface: two-pane layout — left "Conversations" list
+  with search box and rows (avatar/icon, name, last-message preview, time,
+  unread-count badge); right pane header (counterparty name + linked
+  listing + price, "View listing"/"Archive"), a date divider, chat bubbles
+  (incoming left/green-tinted with avatar initials, outgoing right/blue),
+  timestamps, read receipts, and a bottom input bar with attachment icon
+  and send button.
+- Figure 4.9 — User Admin "Pending User Approvals": page header + subtitle,
+  search bar, Role and Date filter dropdowns, a pending-count badge; table
+  (Full Name, Email, Role pill, Location, Registered date, Approve/Reject
+  buttons); Reject opens an inline/modal panel with an optional reason
+  textarea and Cancel/"Confirm rejection" buttons.
+- Figure 4.10 — Financial Manager "Payment Management": top nav bar
+  (Dashboard, Users, Listings, Payments, Reports); page header + subtitle;
+  3 summary cards (Total pending ETB, Verified this month ETB, Flagged
+  count); PENDING/VERIFIED/FLAGGED tabs with counts; method/date filters
+  and an Export button; table (Payment ID, Wholesaler, Farmer, Product,
+  Amount ETB, Method pill, Reference No., Submitted date, Verify/Flag
+  action buttons).
+Reuse this same green-accent, white-card, rounded-corner visual system
+(sidebar shell for farmer/wholesaler/retailer roles, top-nav shell for
+admin/financial-manager/super-admin roles) across every additional screen
+the spec below requires but the wireframes don't explicitly show (e.g.
+retailer dashboard, super admin screens, login/register) — extrapolate
+consistently rather than inventing a different style.
+
+## USER ROLES (single `users` table, `role` field)
+FARMER | WHOLESALER | RETAILER | USER_ADMIN | FINANCIAL_MANAGER | SUPER_ADMIN
+Account `status`: PENDING / APPROVED / REJECTED / SUSPENDED / DEACTIVATED.
+New FARMER/WHOLESALER/RETAILER registrations start PENDING and require
+User Admin approval before login is permitted.
+
+## CORE DATA MODELS (ERD, Ch. 4.8)
+- User: id (UUID), full_name, email (unique), password (hashed), phone,
+  location, latitude, longitude (nullable), role, status,
+  privacy_policy_accepted, created_at, updated_at.
+- Product: id, title, description, category, quantity, unit_of_measure,
+  price_per_unit, status (ACTIVE/INACTIVE/SOLD), product_type
+  (FARMER_LISTING/WHOLESALER_LISTING), owner (FK User), created_at, updated_at.
+- ChatChannel + ChatChannelParticipant (M2M through table).
+- Message: id, channel (FK), sender (FK User), content, created_at.
+- PaymentRecord: id, submitted_by (FK User, wholesaler), farmer (FK User),
+  product (FK Product), amount, payment_method, reference_number,
+  status (PENDING/VERIFIED/FLAGGED/DISPUTED), verified_by (FK User,
+  nullable), notes, submitted_at, verified_at.
+- Notification: id, recipient (FK User), message, is_read, created_at.
+
+## ROLE PERMISSIONS / COMMUNICATION RULES
+- Farmers ↔ Wholesalers and Farmers ↔ Admins only (never directly with
+  retailers).
+- Wholesalers ↔ Farmers and Wholesalers ↔ Retailers.
+- Retailers ↔ Wholesalers only.
+- User Admin: approve/reject pending registrations (optional reason),
+  suspend/deactivate any commercial-role account, broadcast or direct
+  messages to users, message the Super Admin.
+- Financial Manager: view all payment records, verify/flag them, generate
+  filterable financial summary reports, export CSV/PDF.
+- Super Admin: full read access across all data, manage Admin/Financial
+  Manager accounts, override User Admin decisions, configure system-wide
+  settings, view system health metrics.
+
+## FUNCTIONAL REQUIREMENTS BY ROLE
+FARMER: register/login (JWT); create/edit/deactivate/delete product
+listings (name, category, quantity, unit, price, description, images);
+dashboard per Figure 4.6; chat with verified wholesalers/admins.
+
+WHOLESALER: register (pending admin approval); browse/search/filter farmer
+listings (category, location, availability); chat with farmers about a
+listing; submit payment records to admin confirming a purchase; create new
+listings from purchased farmer stock for resale to retailers; chat with
+retailers; dashboard per Figure 4.7.
+
+RETAILER: register (pending admin approval); discover wholesaler listings
+ranked by proximity to registered location; browse/search/filter by
+category/location/price; chat with wholesalers; dashboard (extrapolate
+from Figure 4.7's pattern).
+
+USER ADMIN: pending-approvals queue per Figure 4.9; suspend/deactivate
+accounts; broadcast/direct messaging; message Super Admin.
+
+FINANCIAL MANAGER: payment management screen per Figure 4.10; verify/flag
+actions; financial summary reports filterable by date range/user/
+transaction type; CSV/PDF export.
+
+SUPER ADMIN: full data visibility; manage admin/financial-manager
+accounts; override approval/suspension decisions; system-wide settings;
+health-metric dashboard (active users, transaction volume, API
+performance).
+
+## API ENDPOINTS (implement all, prefix /api/v1/)
+POST   /auth/register/
+POST   /auth/login/                     → JWT access + refresh cookie
+POST   /auth/token/refresh/
+POST   /auth/logout/
+GET    /products/farmer-listings/       (wholesaler view, filterable)
+POST   /products/farmer-listings/       (farmer creates)
+GET/PATCH/DELETE /products/farmer-listings/{id}/   (owner only)
+GET    /products/wholesaler-listings/   (retailer view, proximity-ranked)
+POST   /products/wholesaler-listings/   (wholesaler creates)
+GET    /chat/channels/
+POST   /chat/channels/
+GET    /chat/channels/{id}/messages/
+POST   /payments/                       (wholesaler submits)
+GET    /payments/                       (financial manager/super admin)
+PATCH  /payments/{id}/verify/
+PATCH  /payments/{id}/flag/
+GET    /admin/pending-users/
+POST   /admin/users/{id}/approve/
+POST   /admin/users/{id}/reject/
+GET    /reports/financial-summary/
+GET    /dashboard/farmer/
+GET    /dashboard/wholesaler/
+GET    /dashboard/retailer/
+GET    /dashboard/admin/
+GET    /dashboard/super-admin/
+
+Auth flow: React attaches the access token as a Bearer header; on 401, an
+Axios interceptor calls /auth/token/refresh/ and retries; on refresh
+failure, redirect to login.
+
+## NON-NEGOTIABLES
+- Real SQLite-backed persistence — `python manage.py migrate` sets up a
+  working dev DB with no external services required.
+- Every dashboard number, table row, and chat message must come from the
+  API, not placeholder data.
+- Passwords hashed, role-based permission classes enforced server-side on
+  every endpoint, not just hidden in the UI.

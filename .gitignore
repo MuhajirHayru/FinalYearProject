@@ -1,0 +1,61 @@
+# ---- Python / Django ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# ---- Django local database & generated artifacts ----
+db.sqlite3
+db.sqlite3-journal
+*.sqlite3
+*.sqlite3-journal
+media/
+staticfiles/
+
+# ---- Logs and error output ----
+*.log
+*.err
+
+# ---- Node / Next.js ----
+node_modules/
+.next/
+out/
+.nuxt/
+*.tsbuildinfo
+npm-debug.log*
+yarn-error.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# ---- Environment variables & secrets ----
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# ---- OS files ----
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- Editors / IDEs ----
+.vscode/
+.idea/
+*.swp

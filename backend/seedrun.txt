@@ -1,0 +1,5 @@
+Operations to perform:
+  Apply all migrations: admin, auth, chat, contenttypes, corsheaders, notifications, payments, products, sessions, users
+Running migrations:
+  No migrations to apply.
+Seed data already present — skipping.
