@@ -693,7 +693,8 @@ export const superAdminApi = {
   announcement: (announcement: string) =>
     post<{ success: true; message: string; recipients: number }>(
       "/superadmin/announcement/",
-      { announcement }
+      // The endpoint's body contract is AnnouncementSerializer { message }.
+      { message: announcement }
     ),
 };
 

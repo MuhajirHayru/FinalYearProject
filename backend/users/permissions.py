@@ -115,6 +115,48 @@ class IsChatParticipant(permissions.BasePermission):
         )
 
 
+class IsListingReaderOrOwner(permissions.BasePermission):
+    """Marketplace read access with an owner exemption.
+
+    A seller must always be able to open the detail page of a listing they
+    created, including DRAFT/INACTIVE/SOLD rows that
+    ``ProductQuerySet.visible_to`` deliberately hides from the marketplace.
+    Browsing *another* party's marketplace stays restricted to the reader
+    roles of doc 5.1.5 — the owner exemption never widens ``list`` access.
+    """
+
+    reader_roles: tuple = ()
+    creator_roles: tuple = ()
+
+    def __init__(self, reader_roles=None, creator_roles=None):
+        if reader_roles is not None:
+            self.reader_roles = tuple(reader_roles)
+        if creator_roles is not None:
+            self.creator_roles = tuple(creator_roles)
+        super().__init__()
+
+    def has_permission(self, request, view):
+        user = request.user
+        if not user or not user.is_authenticated:
+            return False
+        # Super Admin is the governance backstop (FR-SA-01).
+        if user.role == Role.SUPER_ADMIN:
+            return True
+        # A role that may publish into this marketplace passes the role gate
+        # here; the object check below then limits it to its own rows.
+        return user.role in self.reader_roles or user.role in self.creator_roles
+
+    def has_object_permission(self, request, view, obj):
+        user = request.user
+        if not user or not user.is_authenticated:
+            return False
+        if user.role == Role.SUPER_ADMIN:
+            return True
+        if getattr(obj, "owner", None) == user:
+            return True
+        return user.role in self.reader_roles
+
+
 class IsOwnerOrAdmin(permissions.BasePermission):
     """Object level: the listing/record owner, or an admin reviewing it."""
 

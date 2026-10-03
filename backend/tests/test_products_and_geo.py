@@ -63,6 +63,102 @@ def test_farmer_cannot_browse_the_farmer_marketplace(api, farmer, farmer_product
     assert api.get("/api/v1/products/farmer-listings/").status_code == 403
 
 
+# -----------------------------------------------------------------------------
+# Owner exemption on listing detail (regression: /farmer/listings/[id] 403'd)
+# -----------------------------------------------------------------------------
+def test_farmer_can_open_their_own_listing_detail(api, farmer, farmer_product):
+    """A Farmer must reach the detail page of a listing they own (FR-F-05)."""
+    api.force_authenticate(user=farmer)
+    response = api.get(f"/api/v1/products/farmer-listings/{farmer_product.id}/")
+    assert response.status_code == 200, response.data
+    assert response.data["id"] == str(farmer_product.id)
+    assert response.data["title"] == "Tomato"
+
+
+def test_farmer_can_open_their_own_non_active_listing(api, farmer, farmer_product):
+    """Own rows stay reachable whatever the status; buyers still see nothing."""
+    for status in (
+        ProductStatus.DRAFT,
+        ProductStatus.INACTIVE,
+        ProductStatus.SOLD,
+        ProductStatus.DELETED,
+    ):
+        farmer_product.status = status
+        farmer_product.save()
+        api.force_authenticate(user=farmer)
+        response = api.get(
+            f"/api/v1/products/farmer-listings/{farmer_product.id}/"
+        )
+        assert response.status_code == 200, (status, response.data)
+        assert response.data["status"] == status
+
+
+def test_farmer_cannot_open_another_farmers_listing(api, farmer, farmer_b):
+    """The owner exemption must not leak a competitor's listing."""
+    other = Product.objects.create(
+        title="Competitor Onion", quantity=40, price_per_unit=12,
+        owner=farmer_b, product_type=ProductType.FARMER_LISTING,
+    )
+    api.force_authenticate(user=farmer)
+    response = api.get(f"/api/v1/products/farmer-listings/{other.id}/")
+    assert response.status_code in (403, 404)
+    assert "Competitor Onion" not in str(response.data)
+
+
+def test_farmer_cannot_browse_other_farmers_listings_via_the_list_endpoint(
+    api, farmer, farmer_b
+):
+    """Adding the owner exemption must not open the marketplace to Farmers."""
+    Product.objects.create(
+        title="Competitor Onion", quantity=40, price_per_unit=12,
+        owner=farmer_b, product_type=ProductType.FARMER_LISTING,
+    )
+    api.force_authenticate(user=farmer)
+    assert api.get("/api/v1/products/farmer-listings/").status_code == 403
+
+
+def test_reader_roles_are_unaffected_by_the_owner_exemption(
+    api, wholesaler, retailer, user_admin, super_admin, farmer_product
+):
+    """Wholesaler/Admin/Super Admin keep browse rights on farmer listings."""
+    url = f"/api/v1/products/farmer-listings/{farmer_product.id}/"
+    for user in (wholesaler, user_admin, super_admin):
+        api.force_authenticate(user=user)
+        assert api.get(url).status_code == 200, user.role
+    # A Retailer is in neither the reader nor the creator set for this table.
+    api.force_authenticate(user=retailer)
+    assert api.get(url).status_code in (403, 404)
+
+
+def test_wholesaler_can_open_their_own_relisted_listing(api, wholesaler,
+                                                         wholesaler_product):
+    """The same exemption applies to the wholesaler re-listing table."""
+    wholesaler_product.status = ProductStatus.SOLD
+    wholesaler_product.save()
+    api.force_authenticate(user=wholesaler)
+    response = api.get(
+        f"/api/v1/products/wholesaler-listings/{wholesaler_product.id}/"
+    )
+    assert response.status_code == 200, response.data
+    assert response.data["status"] == ProductStatus.SOLD
+
+
+def test_announcement_requires_the_message_key(api, super_admin):
+    """The broadcast contract is AnnouncementSerializer { message } (FR-SA-04).
+
+    Guards the bug where the UI posted ``{ announcement }`` and got a 400.
+    """
+    api.force_authenticate(user=super_admin)
+    assert api.post(
+        "/api/v1/superadmin/announcement/", {"message": "System go-live"}, format="json"
+    ).status_code == 201
+    # The old, wrong key must not be silently accepted.
+    assert api.post(
+        "/api/v1/superadmin/announcement/", {"announcement": "System go-live"},
+        format="json",
+    ).status_code == 400
+
+
 # ---------------------------------------------------------------------------
 # Proximity search (FR-R-02 / doc 6.2)
 # ---------------------------------------------------------------------------

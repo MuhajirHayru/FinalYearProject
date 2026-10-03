@@ -22,6 +22,7 @@ from users.models import AccountStatus, Role
 from users.permissions import (
     IsAuthenticatedRole,
     IsFarmer,
+    IsListingReaderOrOwner,
     IsOwnerOrAdmin,
     IsWholesaler,
 )
@@ -179,7 +180,17 @@ class _BaseListingViewSet(
         if self.action in ("create", "update", "partial_update", "destroy",
                            "upload_image", "activate", "deactivate", "mark_sold"):
             return [IsOwnerOrAdmin()]
-        if self.action in ("list", "retrieve", "my"):
+        if self.action == "retrieve":
+            # A seller must reach the detail page of their own listing even when
+            # the row is not publicly visible; everyone else still needs a
+            # reader role from doc 5.1.5.
+            return [
+                IsListingReaderOrOwner(
+                    reader_roles=self.reader_roles,
+                    creator_roles=self.creator_roles,
+                )
+            ]
+        if self.action in ("list", "my"):
             return [IsAuthenticatedRole(self.reader_roles)]
         return super().get_permissions()
 
