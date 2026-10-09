@@ -9,7 +9,6 @@ import {
   MessageSquare,
   Package,
   Pencil,
-  Sprout,
   Tag,
 } from "lucide-react";
 import { chatApi, ordersApi, paymentsApi, productsApi } from "@/lib/api/client";
@@ -27,12 +26,13 @@ import {
   StatusPill,
 } from "@/components/ui";
 import { ProductForm } from "@/components/products/ProductForm";
+import { ProductImageGallery } from "@/components/products/ProductImageGallery";
+import { RelatedProducts } from "@/components/products/RelatedProducts";
 import {
   formatDate,
   formatDistance,
   formatEtb,
   formatNumber,
-  mediaUrl,
 } from "@/lib/format";
 import type { Product, UserRole } from "@/lib/types";
 
@@ -216,23 +216,7 @@ export function ProductDetail({
         <div className="grid gap-6 lg:grid-cols-3">
           <Card className="lg:col-span-2">
             <div className="p-5">
-              {product.images.length > 0 ? (
-                <div className="mb-5 flex flex-wrap gap-3">
-                  {product.images.map((src) => (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      key={src}
-                      src={mediaUrl(src)}
-                      alt={product.title}
-                      className="h-40 w-40 rounded-xl object-cover"
-                    />
-                  ))}
-                </div>
-              ) : (
-                <div className="mb-5 flex h-40 items-center justify-center rounded-xl bg-gray-100 text-gray-300">
-                  <Sprout className="h-10 w-10" />
-                </div>
-              )}
+              <ProductImageGallery images={product.images} title={product.title} />
 
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
@@ -366,6 +350,10 @@ export function ProductDetail({
             </Card>
           </div>
         </div>
+      )}
+
+      {!(editMode && isOwner) && (
+        <RelatedProducts product={product} kind={kind} />
       )}
 
       <Modal

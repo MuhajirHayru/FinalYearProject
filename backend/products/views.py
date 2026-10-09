@@ -7,6 +7,7 @@ Two logically separate resources share one table:
   stock, browsed by Retailers with proximity ranking.
 """
 import os
+import uuid
 
 from django.conf import settings
 from django.db.models import Q
@@ -30,7 +31,9 @@ from users.permissions import (
 from .geo import annotate_distance_km
 from .models import Product, ProductStatus, ProductType
 from .serializers import (
+    MAX_PRODUCT_IMAGES,
     ProductCreateSerializer,
+    ProductImagesSerializer,
     ProductImageUploadSerializer,
     ProductSerializer,
     category_choices,
@@ -284,17 +287,39 @@ class _BaseListingViewSet(
         listing.mark_sold()
         return Response({"success": True, "product": ProductSerializer(listing).data})
 
-    @action(detail=True, methods=["post"], url_path="images")
+    @action(detail=True, methods=["post", "put"], url_path="images")
     def upload_image(self, request, pk=None):
-        """POST .../{id}/images/ — multipart image upload (FR-F-04)."""
+        """POST an image or PUT the retained/reordered image references."""
         listing = self.get_object()
         self._assert_can_modify(listing)
+
+        if request.method == "PUT":
+            serializer = ProductImagesSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            images = serializer.validated_data["images"]
+            if len(images) != len(set(images)) or any(
+                image not in listing.images for image in images
+            ):
+                raise ValidationError(
+                    {"images": "Only unique images already attached to this listing may be kept."}
+                )
+            listing.images = images
+            listing.save(update_fields=["images", "updated_at"])
+            return Response(
+                {"success": True, "product": ProductSerializer(listing).data}
+            )
+
+        if len(listing.images) >= MAX_PRODUCT_IMAGES:
+            raise ValidationError(
+                {"image": "A listing may hold at most 8 images."}
+            )
+
         serializer = ProductImageUploadSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         image = serializer.validated_data["image"]
         ext = os.path.splitext(image.name)[1].lower() or ".jpg"
-        filename = f"{listing.id}-{len(listing.images) + 1}{ext}"
+        filename = f"{listing.id}-{uuid.uuid4().hex}{ext}"
         relative = f"products/{listing.id}/{filename}"
         absolute = os.path.join(settings.MEDIA_ROOT, relative)
         os.makedirs(os.path.dirname(absolute), exist_ok=True)

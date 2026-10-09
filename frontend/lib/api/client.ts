@@ -353,6 +353,11 @@ export const productsApi = {
       { method: "POST", body: form }
     );
   },
+  replaceFarmerListingImages: (id: string, images: string[]) =>
+    apiFetch<WithResource<"product", Product>>(
+      `/products/farmer-listings/${id}/images/`,
+      { method: "PUT", body: JSON.stringify({ images }) }
+    ),
 
   // Wholesaler listings
   wholesalerListings: (query?: ProductQuery) =>
@@ -393,6 +398,11 @@ export const productsApi = {
       { method: "POST", body: form }
     );
   },
+  replaceWholesalerListingImages: (id: string, images: string[]) =>
+    apiFetch<WithResource<"product", Product>>(
+      `/products/wholesaler-listings/${id}/images/`,
+      { method: "PUT", body: JSON.stringify({ images }) }
+    ),
 
   meta: () => get<CategoryUnitMeta>("/products/categories/"),
 };

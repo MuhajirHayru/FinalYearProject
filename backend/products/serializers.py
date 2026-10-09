@@ -3,6 +3,8 @@ from rest_framework import serializers
 
 from .models import Category, Product, UnitOfMeasure
 
+MAX_PRODUCT_IMAGES = 8
+
 
 class ProductSerializer(serializers.ModelSerializer):
     owner_name = serializers.CharField(source="owner.full_name", read_only=True)
@@ -64,7 +66,7 @@ class ProductSerializer(serializers.ModelSerializer):
     def validate_images(self, value):
         if not isinstance(value, list):
             raise serializers.ValidationError("images must be a list of URLs.")
-        if len(value) > 8:
+        if len(value) > MAX_PRODUCT_IMAGES:
             raise serializers.ValidationError("A listing may hold at most 8 images.")
         return value
 
@@ -89,6 +91,13 @@ class ProductCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Price must be greater than zero.")
         return value
 
+    def validate_images(self, value):
+        if not isinstance(value, list):
+            raise serializers.ValidationError("images must be a list of URLs.")
+        if len(value) > MAX_PRODUCT_IMAGES:
+            raise serializers.ValidationError("A listing may hold at most 8 images.")
+        return value
+
 
 class ProductImageUploadSerializer(serializers.Serializer):
     """Multi-part image upload appended to a listing's ``images`` list."""
@@ -99,6 +108,16 @@ class ProductImageUploadSerializer(serializers.Serializer):
         if value.size > 5 * 1024 * 1024:
             raise serializers.ValidationError("Image must be 5 MB or smaller.")
         return value
+
+
+class ProductImagesSerializer(serializers.Serializer):
+    """Existing image references retained or reordered for a listing."""
+
+    images = serializers.ListField(
+        child=serializers.CharField(),
+        allow_empty=True,
+        max_length=MAX_PRODUCT_IMAGES,
+    )
 
 
 class CategorySerializer(serializers.Serializer):

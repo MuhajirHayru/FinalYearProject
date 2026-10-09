@@ -1,5 +1,8 @@
 """Marketplace, geospatial and image-upload tests (doc 5.1.5, FR-F-04..08, FR-R-02)."""
+from pathlib import Path
+
 import pytest
+from django.conf import settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 
 from products.models import Product, ProductStatus, ProductType
@@ -329,6 +332,117 @@ def test_image_upload_appends_to_listing(api, farmer, farmer_product):
     farmer_product.refresh_from_db()
     assert len(farmer_product.images) == 1
     assert farmer_product.images[0].startswith("/media/products/")
+    image_path = Path(
+        settings.MEDIA_ROOT, farmer_product.images[0].removeprefix("/media/")
+    )
+    assert image_path.is_file()
+    if settings.DEBUG:
+        media_response = api.get(farmer_product.images[0])
+        assert media_response.status_code == 200
+        assert media_response["Content-Type"] == "image/png"
+
+
+def test_wholesaler_image_upload_appends_to_listing(
+    api, wholesaler, wholesaler_product
+):
+    api.force_authenticate(user=wholesaler)
+    upload = SimpleUploadedFile("tomato.png", _png_bytes(), content_type="image/png")
+    response = api.post(
+        f"/api/v1/products/wholesaler-listings/{wholesaler_product.id}/images/",
+        {"image": upload},
+        format="multipart",
+    )
+    assert response.status_code == 201, response.data
+    wholesaler_product.refresh_from_db()
+    assert len(wholesaler_product.images) == 1
+    image_path = Path(
+        settings.MEDIA_ROOT, wholesaler_product.images[0].removeprefix("/media/")
+    )
+    assert image_path.is_file()
+
+
+def test_listing_image_upload_stops_at_eight(api, farmer, farmer_product):
+    api.force_authenticate(user=farmer)
+    for index in range(8):
+        upload = SimpleUploadedFile(
+            f"tomato-{index}.png", _png_bytes(), content_type="image/png"
+        )
+        response = api.post(
+            f"/api/v1/products/farmer-listings/{farmer_product.id}/images/",
+            {"image": upload},
+            format="multipart",
+        )
+        assert response.status_code == 201, response.data
+
+    upload = SimpleUploadedFile("ninth.png", _png_bytes(), content_type="image/png")
+    response = api.post(
+        f"/api/v1/products/farmer-listings/{farmer_product.id}/images/",
+        {"image": upload},
+        format="multipart",
+    )
+    assert response.status_code == 400
+    farmer_product.refresh_from_db()
+    assert len(farmer_product.images) == 8
+
+
+def test_listing_creation_rejects_more_than_eight_images(api, farmer):
+    api.force_authenticate(user=farmer)
+    response = api.post(
+        "/api/v1/products/farmer-listings/",
+        {
+            "title": "Tomatoes",
+            "description": "Fresh tomatoes",
+            "category": "Vegetables",
+            "quantity": "10",
+            "unit_of_measure": "kg",
+            "price_per_unit": "25",
+            "images": [f"/media/products/{index}.jpg" for index in range(9)],
+        },
+        format="json",
+    )
+    assert response.status_code == 400
+
+
+def test_listing_images_can_be_removed_and_reordered(api, farmer, farmer_product):
+    api.force_authenticate(user=farmer)
+    uploaded = []
+    for index in range(2):
+        upload = SimpleUploadedFile(
+            f"tomato-{index}.png", _png_bytes(), content_type="image/png"
+        )
+        response = api.post(
+            f"/api/v1/products/farmer-listings/{farmer_product.id}/images/",
+            {"image": upload},
+            format="multipart",
+        )
+        assert response.status_code == 201, response.data
+        uploaded = response.data["product"]["images"]
+
+    reversed_images = list(reversed(uploaded))
+    response = api.put(
+        f"/api/v1/products/farmer-listings/{farmer_product.id}/images/",
+        {"images": reversed_images},
+        format="json",
+    )
+    assert response.status_code == 200, response.data
+    farmer_product.refresh_from_db()
+    assert farmer_product.images == reversed_images
+
+    response = api.put(
+        f"/api/v1/products/farmer-listings/{farmer_product.id}/images/",
+        {"images": [uploaded[1]]},
+        format="json",
+    )
+    assert response.status_code == 200, response.data
+    farmer_product.refresh_from_db()
+    assert farmer_product.images == [uploaded[1]]
+
+    response = api.put(
+        f"/api/v1/products/farmer-listings/{farmer_product.id}/images/",
+        {"images": ["/media/not-this-listing.jpg"]},
+        format="json",
+    )
+    assert response.status_code == 400
 
 
 def test_image_upload_rejects_non_image(api, farmer, farmer_product):
