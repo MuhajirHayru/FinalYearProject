@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Bell, Check, CheckCheck, RefreshCw } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
 import {
@@ -20,6 +20,7 @@ import { formatDateTime } from "@/lib/format";
 import type { Notification } from "@/lib/types";
 
 export default function NotificationsPage() {
+  const router = useRouter();
   const { refresh } = useNotifications();
   const [rows, setRows] = useState<Notification[]>([]);
   const [count, setCount] = useState(0);
@@ -67,6 +68,11 @@ export default function NotificationsPage() {
       setError(err instanceof Error ? err.message : "Could not update notification.");
       void load();
     }
+  }
+
+  async function openNotification(notification: Notification) {
+    if (!notification.is_read) await markOne(notification.id);
+    if (notification.target_url) router.push(notification.target_url);
   }
 
   const unread = rows.filter((n) => !n.is_read).length;
@@ -138,13 +144,14 @@ export default function NotificationsPage() {
                     </span>
                   </div>
                   <p className="mt-1.5 text-sm text-gray-800">{n.message}</p>
-                  {(n.type === "MESSAGE" || n.type === "ORDER" || n.type === "PAYMENT") && (
-                    <Link
-                      href={n.type === "MESSAGE" ? "/chat" : "/notifications"}
+                  {n.target_url && (
+                    <button
+                      type="button"
+                      onClick={() => void openNotification(n)}
                       className="mt-1.5 inline-block text-xs font-medium text-green-700 hover:underline"
                     >
                       View
-                    </Link>
+                    </button>
                   )}
                 </div>
                 {!n.is_read && (

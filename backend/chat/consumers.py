@@ -9,13 +9,23 @@ Both authenticate the upgrade handshake from the ``?token=<JWT>`` query
 parameter validated by ``users.middleware.JWTAuthMiddleware``.
 """
 
+import asyncio
 import json
+import time
+import uuid
+from datetime import timedelta
 
 from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from django.core.serializers.json import DjangoJSONEncoder
 
-from greenpath.realtime import chat_group, notification_group
+from greenpath.realtime import (
+    chat_group,
+    notification_group,
+    presence_group,
+    presence_user_group,
+    push_presence_event,
+)
 from notifications.models import Notification
 
 
@@ -196,3 +206,131 @@ class NotificationConsumer(_AuthenticatedConsumer):
 
     async def notify_notification(self, event):
         await self.send_json(event.get("payload", event))
+
+
+class PresenceConsumer(_AuthenticatedConsumer):
+    """Heartbeat lease for a single authenticated marketplace connection."""
+
+    async def connect(self):
+        self.user = await self._authenticate()
+        if self.user is None:
+            return
+
+        from users.models import Role
+
+        observed_roles = {
+            Role.FARMER: (Role.WHOLESALER,),
+            Role.WHOLESALER: (Role.FARMER, Role.WHOLESALER),
+            Role.RETAILER: (Role.WHOLESALER,),
+        }.get(self.user.role)
+        if observed_roles is None:
+            await self.close(code=4403)
+            return
+
+        self.presence_groups = [presence_group(role) for role in observed_roles]
+        self.presence_groups.append(presence_user_group(self.user.pk))
+        for group in self.presence_groups:
+            await self.channel_layer.group_add(group, self.channel_name)
+
+        self.presence_session_id = uuid.uuid4()
+        self.last_heartbeat = time.monotonic()
+        await self.accept()
+        await self._register_presence()
+        self.expiry_task = asyncio.create_task(self._watch_heartbeat())
+
+    @database_sync_to_async
+    def _register_presence(self):
+        from django.conf import settings
+        from django.utils import timezone
+
+        from users.models import PresenceSession
+
+        now = timezone.now()
+        cutoff = now - timedelta(seconds=settings.PRESENCE_TIMEOUT_SECONDS)
+        was_online = PresenceSession.objects.filter(
+            user=self.user,
+            disconnected_at__isnull=True,
+            last_seen_at__gte=cutoff,
+        ).exists()
+        PresenceSession.objects.create(
+            id=self.presence_session_id,
+            user=self.user,
+            last_seen_at=now,
+        )
+        if not was_online:
+            push_presence_event(self.user.role, self.user.pk, True)
+
+    @database_sync_to_async
+    def _heartbeat(self):
+        from django.utils import timezone
+
+        from users.models import PresenceSession
+
+        return PresenceSession.objects.filter(
+            id=self.presence_session_id,
+            user=self.user,
+            disconnected_at__isnull=True,
+        ).update(last_seen_at=timezone.now())
+
+    @database_sync_to_async
+    def _deactivate_presence(self):
+        from django.conf import settings
+        from django.utils import timezone
+
+        from users.models import PresenceSession
+
+        now = timezone.now()
+        was_active = PresenceSession.objects.filter(
+            id=self.presence_session_id,
+            user=self.user,
+            disconnected_at__isnull=True,
+        ).update(disconnected_at=now)
+        cutoff = now - timedelta(seconds=settings.PRESENCE_TIMEOUT_SECONDS)
+        remains_online = PresenceSession.objects.filter(
+            user=self.user,
+            disconnected_at__isnull=True,
+            last_seen_at__gte=cutoff,
+        ).exists()
+        if was_active and not remains_online:
+            push_presence_event(self.user.role, self.user.pk, False)
+
+    async def receive_json(self, content, **kwargs):
+        action = content.get("action") or content.get("type")
+        if action not in ("heartbeat", "presence.heartbeat"):
+            return
+        if not await self._heartbeat():
+            await self.close(code=4408)
+            return
+        self.last_heartbeat = time.monotonic()
+        await self.send_json({"type": "presence.heartbeat"})
+
+    async def _watch_heartbeat(self):
+        from django.conf import settings
+
+        timeout = settings.PRESENCE_TIMEOUT_SECONDS
+        interval = min(max(timeout / 3, 1), 15)
+        loop = asyncio.get_running_loop()
+        while True:
+            await asyncio.sleep(interval)
+            if loop.time() - self.last_heartbeat > timeout:
+                await self._deactivate_presence()
+                await self.close(code=4408)
+                return
+
+    async def disconnect(self, code):
+        task = getattr(self, "expiry_task", None)
+        if task and task is not asyncio.current_task():
+            task.cancel()
+        if hasattr(self, "presence_session_id"):
+            await self._deactivate_presence()
+        for group in getattr(self, "presence_groups", ()):
+            await self.channel_layer.group_discard(group, self.channel_name)
+
+    async def presence_event(self, event):
+        await self.send_json(
+            {
+                "type": "presence.changed",
+                "user_id": event["user_id"],
+                "is_online": event["is_online"],
+            }
+        )

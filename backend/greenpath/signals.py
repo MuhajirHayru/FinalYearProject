@@ -20,11 +20,11 @@ Event catalogue:
 ============================  ==========================================
 """
 from chat.models import Message
-from django.db.models.signals import post_save
+from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 
 from notifications.services import notify
-from payments.models import Order, PaymentRecord, PaymentStatus
+from payments.models import Order, OrderStatus, PaymentRecord, PaymentStatus
 from users.models import AccountStatus, User
 
 
@@ -126,19 +126,59 @@ def payment_status_changed(sender, instance, created, **kwargs):
 
 @receiver(post_save, sender=Order)
 def order_created(sender, instance, created, **kwargs):
-    """Notify the farmer that stock has been committed (UC-02 adjacency)."""
-    if not created:
+    if created:
+        seller = instance.seller
+        buyer = instance.buyer
+        notify(
+            user_ids=[seller.id],
+            type="ORDER",
+            message=(
+                f"New order {instance.reference} for {instance.quantity} "
+                f"{instance.product.unit_of_measure} of "
+                f'"{instance.product.title}" from {buyer.full_name}'
+            ),
+            actor=buyer,
+            target_url=f"/orders/{instance.id}",
+        )
         return
-    notify(
-        user_ids=[instance.farmer_id],
-        type="ORDER",
-        message=(
-            f"New order {instance.reference} for {instance.quantity} "
-            f"{instance.product.unit_of_measure} of "
-            f'"{instance.product.title}" from {instance.wholesaler.full_name}'
+    if not hasattr(instance, "_previous_status"):
+        return
+    previous = instance._previous_status
+    if previous == instance.status:
+        return
+    messages = {
+        OrderStatus.ACCEPTED: "The seller accepted your order and activated its agreement.",
+        OrderStatus.REJECTED: "The seller rejected your order. Reserved funds were returned.",
+        OrderStatus.SHIPPED: "Your order has been dispatched.",
+        OrderStatus.AWAITING_QUALITY_CONFIRMATION: (
+            "Your delivery arrived. Confirm quality or report a dispute."
         ),
-        actor=instance.wholesaler,
-    )
+        OrderStatus.AWAITING_PAYMENT_RELEASE: (
+            "Quality was confirmed. The Financial Manager will review escrow release."
+        ),
+        OrderStatus.COMPLETED: "The order is complete and escrow has been released.",
+        OrderStatus.DISPUTED: "A quality dispute is open; escrow is on hold.",
+        OrderStatus.CANCELLED: "The order was cancelled and reserved funds returned.",
+    }
+    message = messages.get(instance.status)
+    if message:
+        notify(
+            user_ids=[instance.buyer.id, instance.seller.id],
+            type="ORDER",
+            message=f"Order {instance.reference}: {message}",
+            actor=None,
+            target_url=f"/orders/{instance.id}",
+        )
+
+
+@receiver(pre_save, sender=Order)
+def remember_order_status(sender, instance, **kwargs):
+    if not instance._state.adding:
+        instance._previous_status = (
+            Order.objects.filter(pk=instance.pk)
+            .values_list("status", flat=True)
+            .first()
+        )
 
 
 @receiver(post_save, sender=Message)

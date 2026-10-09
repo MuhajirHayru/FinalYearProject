@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { MessageSquare, Search, Send, Wifi, WifiOff } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
+import { FinanciallyVerifiedBadge } from "@/components/users/FinanciallyVerifiedBadge";
 import {
   Avatar,
   Button,
@@ -369,12 +370,13 @@ function ChatView() {
                         c.id === activeId ? "bg-green-50/70" : "hover:bg-gray-50"
                       }`}
                     >
-                      <Avatar name={other?.full_name ?? "?"} size="sm" />
+                      <Avatar name={other?.full_name ?? "?"} size="sm" src={other?.profile_photo} />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between gap-2">
                           <span className="truncate text-sm font-semibold text-gray-900">
                             {other?.full_name ?? "Conversation"}
                           </span>
+                          {other?.financially_verified && <FinanciallyVerifiedBadge />}
                           {c.unread_count > 0 && (
                             <span className="shrink-0 rounded-full bg-green-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">
                               {c.unread_count}
@@ -387,9 +389,15 @@ function ChatView() {
                           </p>
                         )}
                         <p className="mt-0.5 truncate text-xs text-gray-500">
-                          {c.last_message
-                            ? `${c.last_message.sender_name}: ${c.last_message.content}`
-                            : "No messages yet"}
+                          {c.last_message ? (
+                            <>
+                              {c.last_message.sender_name}
+                              {c.last_message.sender_financially_verified && (
+                                <FinanciallyVerifiedBadge />
+                              )}
+                              {`: ${c.last_message.content}`}
+                            </>
+                          ) : "No messages yet"}
                         </p>
                         {c.last_message_at && (
                           <p className="mt-0.5 text-[11px] text-gray-400">
@@ -415,10 +423,11 @@ function ChatView() {
               <>
                 <div className="flex items-center justify-between gap-3 border-b border-gray-100 px-5 py-3.5">
                   <div className="flex min-w-0 items-center gap-3">
-                    <Avatar name={peer?.full_name ?? "?"} size="sm" />
+                    <Avatar name={peer?.full_name ?? "?"} size="sm" src={peer?.profile_photo} />
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-gray-900">
                         {peer?.full_name ?? "Conversation"}
+                        {peer?.financially_verified && <FinanciallyVerifiedBadge />}
                       </p>
                       <div className="flex items-center gap-2">
                         {peer && <StatusPill value={peer.role} kind="role" />}
@@ -478,6 +487,9 @@ function ChatView() {
                               {!mine && (
                                 <p className="mb-0.5 text-[11px] font-semibold text-gray-500">
                                   {m.sender_name}
+                                  {m.sender_financially_verified && (
+                                    <FinanciallyVerifiedBadge />
+                                  )}
                                 </p>
                               )}
                               <p className="whitespace-pre-wrap break-words text-sm">

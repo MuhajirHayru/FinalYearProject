@@ -7,8 +7,12 @@ import {
   Search,
   SlidersHorizontal,
   Sprout,
+  Star,
   X,
 } from "lucide-react";
+import { Avatar } from "@/components/ui";
+import { OnlineStatus } from "@/components/presence/PresenceProvider";
+import { FinanciallyVerifiedBadge } from "@/components/users/FinanciallyVerifiedBadge";
 import { productsApi } from "@/lib/api/client";
 import {
   Button,
@@ -413,11 +417,32 @@ export function MarketplaceBrowser({
                     </p>
                   </div>
 
-                  <p className="mt-2 flex items-center gap-1 truncate text-xs text-gray-400">
-                    <MapPin className="h-3 w-3 shrink-0" />
-                    {p.owner_location || "Location not set"}
-                    {p.distance_km !== null && ` - ${formatDistance(p.distance_km)}`}
-                  </p>
+                  <div className="mt-2 flex min-w-0 items-center gap-2">
+                    <Avatar name={p.owner_name} size="sm" src={p.owner_profile_photo} />
+                    <div className="min-w-0">
+                      <p className="flex items-center gap-1 truncate text-xs font-medium text-gray-600">
+                        {p.owner_name}
+                        {p.owner_financially_verified && <FinanciallyVerifiedBadge />}
+                      </p>
+                      {(p.owner_role === "Farmer" || p.owner_role === "Wholesaler") && (
+                        <OnlineStatus
+                          userId={p.owner}
+                          initiallyOnline={p.owner_is_online}
+                        />
+                      )}
+                      <p className="flex items-center gap-1 truncate text-xs text-gray-400">
+                        <MapPin className="h-3 w-3 shrink-0" />
+                        {p.owner_location || "Location not set"}
+                        {p.distance_km !== null && ` - ${formatDistance(p.distance_km)}`}
+                      </p>
+                    </div>
+                  </div>
+                  {p.owner_average_rating !== null && (
+                    <p className="mt-1 flex items-center gap-1 text-xs text-amber-600">
+                      <Star className="h-3 w-3 fill-current" />
+                      {p.owner_average_rating.toFixed(1)} ({p.owner_review_count} review{p.owner_review_count === 1 ? "" : "s"})
+                    </p>
+                  )}
                 </div>
               </Link>
             ))}

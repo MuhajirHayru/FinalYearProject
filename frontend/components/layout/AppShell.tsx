@@ -16,6 +16,7 @@ import { getNavItems, useAuth, usesSidebar, type NavItem } from "@/lib/auth/cont
 import { ICONS, shortRelative } from "@/lib/format";
 import { authApi, notificationsApi } from "@/lib/api/client";
 import { Avatar, Spinner } from "@/components/ui";
+import { PresenceProvider } from "@/components/presence/PresenceProvider";
 import { cn } from "@/lib/utils";
 import type { Notification, UserRole } from "@/lib/types";
 
@@ -100,6 +101,7 @@ function FullPageLoader() {
 // ---------------------------------------------------------------------------
 
 function NotificationBell() {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(false);
@@ -134,6 +136,25 @@ function NotificationBell() {
       refresh();
     } catch {
       // Ignore: the next poll will correct the badge.
+    }
+  }
+
+  async function openNotification(notification: Notification) {
+    try {
+      if (!notification.is_read) {
+        await notificationsApi.markRead(notification.id);
+        setItems((prev) =>
+          prev.map((item) =>
+            item.id === notification.id ? { ...item, is_read: true } : item
+          )
+        );
+        refresh();
+      }
+      setOpen(false);
+      router.push(notification.target_url || "/notifications");
+    } catch {
+      setOpen(false);
+      router.push("/notifications");
     }
   }
 
@@ -182,10 +203,16 @@ function NotificationBell() {
                       key={n.id}
                       className={cn("px-4 py-3", !n.is_read && "bg-green-50/50")}
                     >
-                      <p className="text-sm text-gray-800">{n.message}</p>
-                      <p className="mt-0.5 text-xs text-gray-500">
-                        {shortRelative(n.created_at)}
-                      </p>
+                      <button
+                        type="button"
+                        className="w-full text-left"
+                        onClick={() => void openNotification(n)}
+                      >
+                        <span className="block text-sm text-gray-800">{n.message}</span>
+                        <span className="mt-0.5 block text-xs text-gray-500">
+                          {shortRelative(n.created_at)}
+                        </span>
+                      </button>
                     </li>
                   ))}
                 </ul>
@@ -221,7 +248,7 @@ function UserChip() {
         aria-expanded={open}
         className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-gray-100"
       >
-        <Avatar name={user.full_name} size="sm" />
+        <Avatar name={user.full_name} size="sm" src={user.profile_photo} />
         <span className="hidden text-left leading-tight sm:block">
           <span className="block text-sm font-semibold text-gray-900">
             {user.full_name}
@@ -495,16 +522,18 @@ export function AppShell({
   const sidebar = usesSidebar(user.role);
 
   return (
-    <UnreadProvider>
-      <div className="flex h-screen overflow-hidden bg-gray-50 text-gray-900">
-        {sidebar && <Sidebar items={items} />}
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          {!sidebar && <TopNav items={items} />}
-          {sidebar && <Header title={title} />}
-          <Announcement />
-          <main className="flex-1 overflow-y-auto p-5 lg:p-8">{children}</main>
+    <PresenceProvider>
+      <UnreadProvider>
+        <div className="flex h-screen overflow-hidden bg-gray-50 text-gray-900">
+          {sidebar && <Sidebar items={items} />}
+          <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+            {!sidebar && <TopNav items={items} />}
+            {sidebar && <Header title={title} />}
+            <Announcement />
+            <main className="flex-1 overflow-y-auto p-5 lg:p-8">{children}</main>
+          </div>
         </div>
-      </div>
-    </UnreadProvider>
+      </UnreadProvider>
+    </PresenceProvider>
   );
 }

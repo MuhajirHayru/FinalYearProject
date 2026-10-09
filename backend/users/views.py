@@ -6,7 +6,12 @@ from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import AccountStatus, PlatformSettings, User
-from .serializers import LoginSerializer, ProfileUpdateSerializer, UserSerializer
+from .serializers import (
+    LoginSerializer,
+    ProfilePhotoSerializer,
+    ProfileUpdateSerializer,
+    UserSerializer,
+)
 
 REFRESH_COOKIE_MAX_AGE = 60 * 60 * 24 * 7  # 7 days, per NFR-04
 
@@ -35,12 +40,15 @@ def _user_payload(user):
         "full_name": user.full_name,
         "email": user.email,
         "phone": user.phone,
+        "profile_photo": user.profile_photo.url if user.profile_photo else "",
         "role": user.role,
         "role_display": user.get_role_display(),
         "status": user.status,
         "status_display": user.get_status_display(),
         "location": user.location,
         "permissions": user.get_role_permissions(),
+        "financially_verified": user.financially_verified,
+        "is_online": user.is_online,
     }
 
 
@@ -186,6 +194,32 @@ class UpdateProfileView(views.APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response({"success": True, "user": UserSerializer(request.user).data})
+
+
+class UpdateProfilePhotoView(views.APIView):
+    """POST/DELETE /api/v1/auth/profile/photo/ — manage only the caller's image."""
+
+    serializer_class = ProfilePhotoSerializer
+
+    def post(self, request):
+        serializer = ProfilePhotoSerializer(
+            request.user,
+            data=request.data,
+            partial=True,
+        )
+        serializer.is_valid(raise_exception=True)
+        old_name = request.user.profile_photo.name
+        user = serializer.save()
+        if old_name and old_name != user.profile_photo.name:
+            user.profile_photo.storage.delete(old_name)
+        return Response({"success": True, "user": UserSerializer(user).data})
+
+    def delete(self, request):
+        user = request.user
+        if user.profile_photo:
+            user.profile_photo.delete(save=False)
+            user.save(update_fields=["profile_photo", "updated_at"])
+        return Response({"success": True, "user": UserSerializer(user).data})
 
 
 @extend_schema(responses=OpenApiTypes.OBJECT)

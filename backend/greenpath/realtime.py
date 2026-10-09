@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 CHAT_GROUP_PREFIX = "chat"
 NOTIFICATION_GROUP_PREFIX = "notify"
+PRESENCE_GROUP_PREFIX = "presence"
 
 
 def chat_group(channel_id) -> str:
@@ -23,6 +24,14 @@ def chat_group(channel_id) -> str:
 
 def notification_group(user_id) -> str:
     return f"{NOTIFICATION_GROUP_PREFIX}_{user_id}"
+
+
+def presence_group(role) -> str:
+    return f"{PRESENCE_GROUP_PREFIX}_{role}"
+
+
+def presence_user_group(user_id) -> str:
+    return f"{PRESENCE_GROUP_PREFIX}_user_{user_id}"
 
 
 def push_to_group(group: str, payload: dict) -> bool:
@@ -52,3 +61,16 @@ def push_notification_event(user_id, payload: dict) -> bool:
     payload = dict(payload)
     payload.setdefault("type", "notify.event")
     return push_to_group(notification_group(user_id), payload)
+
+
+def push_presence_event(role, user_id, is_online) -> bool:
+    payload = {
+        "type": "presence.event",
+        "user_id": str(user_id),
+        "is_online": bool(is_online),
+    }
+    delivered = push_to_group(
+        presence_group(role),
+        payload,
+    )
+    return push_to_group(presence_user_group(user_id), payload) or delivered

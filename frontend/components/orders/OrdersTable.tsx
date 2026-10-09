@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { ClipboardList, MessageSquare } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/layout/AppShell";
@@ -18,15 +19,23 @@ import {
   Th,
 } from "@/components/ui";
 import { chatApi, ordersApi } from "@/lib/api/client";
+import { FinanciallyVerifiedBadge } from "@/components/users/FinanciallyVerifiedBadge";
 import { formatNumber } from "@/lib/format";
 import type { Order, OrderStatus } from "@/lib/types";
 
 const STATUS_FILTERS: { value: string; label: string }[] = [
   { value: "ALL", label: "All statuses" },
+  { value: "Pending seller approval", label: "Pending seller approval" },
+  { value: "Accepted", label: "Accepted" },
   { value: "Processing", label: "Processing" },
   { value: "Confirmed", label: "Confirmed" },
   { value: "Shipped", label: "Shipped" },
   { value: "Delivered", label: "Delivered" },
+  { value: "Awaiting quality confirmation", label: "Awaiting quality confirmation" },
+  { value: "Awaiting payment release", label: "Awaiting payment release" },
+  { value: "Completed", label: "Completed" },
+  { value: "Rejected", label: "Rejected" },
+  { value: "Disputed", label: "Disputed" },
   { value: "Cancelled", label: "Cancelled" },
 ];
 
@@ -39,7 +48,7 @@ export function OrdersTable({
   /** Whose perspective: wholesalers act on Processing->Confirmed. */
   perspective,
 }: {
-  perspective: "wholesaler" | "farmer";
+  perspective: "wholesaler" | "farmer" | "retailer";
 }) {
   const router = useRouter();
   const [rows, setRows] = useState<Order[]>([]);
@@ -88,7 +97,13 @@ export function OrdersTable({
     try {
       // A wholesaler opens a channel with the farmer; a farmer replies to the
       // wholesaler that placed the order.
-      const other = perspective === "wholesaler" ? order.farmer : order.wholesaler;
+      const other =
+        perspective === "wholesaler"
+          ? order.retailer ?? order.farmer
+          : order.wholesaler;
+      if (!other) {
+        throw new Error("The counterparty for this order is unavailable.");
+      }
       const res = await chatApi.openChannel(other, order.product);
       router.push(`/chat?channel=${res.channel.id}`);
     } catch (err) {
@@ -140,7 +155,13 @@ export function OrdersTable({
               <thead>
                 <tr>
                   <Th>Reference</Th>
-                  <Th>{perspective === "wholesaler" ? "Farmer" : "Wholesaler"}</Th>
+                  <Th>
+                    {perspective === "farmer"
+                      ? "Buyer"
+                      : perspective === "retailer"
+                        ? "Wholesaler"
+                        : "Counterparty"}
+                  </Th>
                   <Th>Product</Th>
                   <Th>Quantity</Th>
                   <Th>Total</Th>
@@ -152,9 +173,25 @@ export function OrdersTable({
               <tbody>
                 {rows.map((o) => (
                   <tr key={o.id}>
-                    <Td className="font-mono text-xs">{o.reference}</Td>
                     <Td>
-                      {perspective === "wholesaler" ? o.farmer_name : o.wholesaler_name}
+                      <Link
+                        href={`/orders/${o.id}`}
+                        className="font-mono text-xs font-medium text-green-700 hover:underline"
+                      >
+                        {o.reference}
+                      </Link>
+                    </Td>
+                    <Td>
+                      {perspective === "farmer" ? (
+                        <span className="inline-flex items-center gap-1">
+                          {o.buyer_name}
+                          {o.buyer_financially_verified && <FinanciallyVerifiedBadge />}
+                        </span>
+                      ) : perspective === "retailer" ? (
+                        o.seller_name
+                      ) : (
+                        o.retailer_name ?? o.farmer_name
+                      )}
                     </Td>
                     <Td className="max-w-44 truncate">{o.product_title}</Td>
                     <Td>{formatNumber(o.quantity)}</Td>

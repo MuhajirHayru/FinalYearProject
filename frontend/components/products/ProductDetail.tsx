@@ -9,6 +9,7 @@ import {
   MessageSquare,
   Package,
   Pencil,
+  Star,
   Tag,
 } from "lucide-react";
 import { chatApi, ordersApi, paymentsApi, productsApi } from "@/lib/api/client";
@@ -16,6 +17,7 @@ import { useAuth } from "@/lib/auth/context";
 import { AppShell } from "@/components/layout/AppShell";
 import {
   Button,
+  Avatar,
   Card,
   ErrorBanner,
   Field,
@@ -28,6 +30,8 @@ import {
 import { ProductForm } from "@/components/products/ProductForm";
 import { ProductImageGallery } from "@/components/products/ProductImageGallery";
 import { RelatedProducts } from "@/components/products/RelatedProducts";
+import { OnlineStatus } from "@/components/presence/PresenceProvider";
+import { FinanciallyVerifiedBadge } from "@/components/users/FinanciallyVerifiedBadge";
 import {
   formatDate,
   formatDistance,
@@ -113,9 +117,9 @@ export function ProductDetail({
     setOrderBusy(true);
     setOrderError("");
     try {
-      await ordersApi.create(product.id, orderQty);
+      const result = await ordersApi.create(product.id, orderQty);
       setOrderOpen(false);
-      router.push("/wholesaler/orders");
+      router.push(`/orders/${result.order.id}`);
     } catch (err) {
       setOrderError(err instanceof Error ? err.message : "Order failed.");
     } finally {
@@ -186,7 +190,10 @@ export function ProductDetail({
   }
 
   const isOwner = product.is_owner;
-  const canOrder = viewerRole === "WHOLESALER" && kind === "farmer" && !isOwner;
+  const canOrder =
+    !isOwner &&
+    ((viewerRole === "WHOLESALER" && kind === "farmer") ||
+      (viewerRole === "RETAILER" && kind === "wholesaler"));
   const canPay = viewerRole === "WHOLESALER" && kind === "farmer" && !isOwner;
   const canChat = !isOwner;
 
@@ -272,10 +279,27 @@ export function ProductDetail({
                 <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
                   Seller
                 </p>
-                <p className="mt-1.5 text-base font-semibold text-gray-900">
-                  {product.owner_name}
-                </p>
+                <div className="mt-2 flex items-center gap-2">
+                  <Avatar name={product.owner_name} size="sm" src={product.owner_profile_photo} />
+                  <p className="flex items-center gap-1.5 text-base font-semibold text-gray-900">
+                    {product.owner_name}
+                    {product.owner_financially_verified && <FinanciallyVerifiedBadge />}
+                  </p>
+                </div>
                 <p className="text-sm text-gray-500">{product.owner_role}</p>
+                {(product.owner_role === "Farmer" ||
+                  product.owner_role === "Wholesaler") && (
+                  <OnlineStatus
+                    userId={product.owner}
+                    initiallyOnline={product.owner_is_online}
+                  />
+                )}
+                {product.owner_average_rating !== null && (
+                  <p className="mt-1 flex items-center gap-1 text-sm text-amber-600">
+                    <Star className="h-4 w-4 fill-current" />
+                    {product.owner_average_rating.toFixed(1)} from {product.owner_review_count} review{product.owner_review_count === 1 ? "" : "s"}
+                  </p>
+                )}
                 <p className="mt-2 flex items-center gap-1.5 text-sm text-gray-500">
                   <MapPin className="h-3.5 w-3.5" />
                   {product.owner_location || "—"}

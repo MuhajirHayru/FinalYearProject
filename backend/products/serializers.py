@@ -10,6 +10,13 @@ class ProductSerializer(serializers.ModelSerializer):
     owner_name = serializers.CharField(source="owner.full_name", read_only=True)
     owner_location = serializers.CharField(source="owner.location", read_only=True)
     owner_role = serializers.CharField(source="owner.get_role_display", read_only=True)
+    owner_profile_photo = serializers.ImageField(
+        source="owner.profile_photo", read_only=True, allow_null=True
+    )
+    owner_financially_verified = serializers.BooleanField(
+        source="owner.financially_verified", read_only=True
+    )
+    owner_is_online = serializers.BooleanField(source="owner.is_online", read_only=True)
     owner_latitude = serializers.DecimalField(
         source="owner.latitude", max_digits=9, decimal_places=6, read_only=True
     )
@@ -22,6 +29,8 @@ class ProductSerializer(serializers.ModelSerializer):
     is_owner = serializers.SerializerMethodField()
     distance_km = serializers.SerializerMethodField()
     total_value = serializers.SerializerMethodField()
+    owner_average_rating = serializers.SerializerMethodField()
+    owner_review_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
@@ -29,7 +38,10 @@ class ProductSerializer(serializers.ModelSerializer):
             "id", "title", "description", "category", "category_display",
             "quantity", "unit_of_measure", "unit_display", "price_per_unit",
             "status", "status_display", "product_type", "owner", "owner_name",
-            "owner_location", "owner_role", "owner_latitude", "owner_longitude",
+            "owner_location", "owner_role", "owner_profile_photo",
+            "owner_financially_verified", "owner_is_online",
+            "owner_latitude", "owner_longitude",
+            "owner_average_rating", "owner_review_count",
             "images", "is_owner", "distance_km", "total_value",
             "created_at", "updated_at",
         ]
@@ -52,6 +64,15 @@ class ProductSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.CharField)
     def get_total_value(self, obj):
         return str(obj.total_value)
+
+    @extend_schema_field(serializers.FloatField(allow_null=True))
+    def get_owner_average_rating(self, obj):
+        value = getattr(obj, "owner_average_rating", None)
+        return round(float(value), 2) if value is not None else None
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_owner_review_count(self, obj):
+        return getattr(obj, "owner_review_count", 0)
 
     def validate_quantity(self, value):
         if value <= 0:

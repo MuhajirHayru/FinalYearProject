@@ -3,7 +3,7 @@ import pytest
 from rest_framework.test import APIClient
 
 from chat.models import ChatChannel
-from payments.models import Order, PaymentRecord
+from payments.models import Order, PaymentRecord, Wallet
 from products.models import Product, ProductType
 from users.models import AccountStatus, Role, User
 
@@ -28,26 +28,32 @@ def farmer_b(db):
 
 @pytest.fixture
 def wholesaler(db):
-    return make_user(
+    user = make_user(
         Role.WHOLESALER, "wholesaler@test.et", "Meles Wholesaler",
         location="Addis Ababa", latitude=9.0300, longitude=38.7400,
     )
+    Wallet.objects.create(user=user, available_balance="100000.00")
+    return user
 
 
 @pytest.fixture
 def wholesaler_b(db):
-    return make_user(
+    user = make_user(
         Role.WHOLESALER, "wholesaler2@test.et", "Selam Wholesaler",
         location="Addis Ababa", latitude=9.0200, longitude=38.7500,
     )
+    Wallet.objects.create(user=user, available_balance="100000.00")
+    return user
 
 
 @pytest.fixture
 def retailer(db):
-    return make_user(
+    user = make_user(
         Role.RETAILER, "retailer@test.et", "Mulu Retail",
         location="Addis Ababa", latitude=9.0300, longitude=38.7400,
     )
+    Wallet.objects.create(user=user, available_balance="100000.00")
+    return user
 
 
 @pytest.fixture

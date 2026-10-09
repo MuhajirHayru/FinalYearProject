@@ -16,6 +16,8 @@ import type {
   AdminAccount as AdminAccountType,
   AuditLog,
   CategoryUnitMeta,
+  BankAccount,
+  BankAccountFullDetails,
   ChatChannel,
   DirectoryUser,
   FarmerDashboardData,
@@ -26,6 +28,7 @@ import type {
   MeResponse,
   Message,
   Notification,
+  BusinessAgreement,
   Order,
   OrderStatus,
   Paginated,
@@ -33,18 +36,24 @@ import type {
   PaymentRecord,
   PaymentStatus,
   PaymentSummaryData,
+  PayoutBank,
   PlatformSettings,
   Product,
   ProductCreate,
   ProductQuery,
   RegisterResponse,
   RetailerDashboardData,
+  Review,
   SuperAdminDecision,
   SuperAdminHealth,
   SuperAdminResource,
   SuperAdminRow,
   TransactionVolume,
   User,
+  Wallet,
+  WalletFundingRequest,
+  WalletPayoutRequest,
+  WalletTransaction,
   WholesalerDashboardData,
   WithResource,
 } from "@/lib/types";
@@ -221,10 +230,29 @@ function post<T>(endpoint: string, body?: unknown) {
   });
 }
 
+function postWithHeaders<T>(
+  endpoint: string,
+  body: unknown,
+  headers: Record<string, string>
+) {
+  return apiFetch<T>(endpoint, {
+    method: "POST",
+    body: JSON.stringify(body),
+    headers,
+  });
+}
+
 function patch<T>(endpoint: string, body?: unknown) {
   return apiFetch<T>(endpoint, {
     method: "PATCH",
     body: body === undefined ? undefined : JSON.stringify(body),
+  });
+}
+
+function put<T>(endpoint: string, body: unknown) {
+  return apiFetch<T>(endpoint, {
+    method: "PUT",
+    body: JSON.stringify(body),
   });
 }
 
@@ -299,6 +327,18 @@ export const authApi = {
 
   updateProfile: (data: Partial<Pick<User, "full_name" | "phone" | "location" | "latitude" | "longitude">>) =>
     patch<{ success: true; user: User }>("/auth/profile/", data),
+
+  updatePhoto: (file: File) => {
+    const form = new FormData();
+    form.append("profile_photo", file);
+    return apiFetch<{ success: true; user: User }>("/auth/profile/photo/", {
+      method: "POST",
+      body: form,
+    });
+  },
+
+  removePhoto: () =>
+    del<{ success: true; user: User }>("/auth/profile/photo/"),
 
   announcement: () =>
     get<{ success: true; announcement: string; maintenance_mode: boolean }>(
@@ -487,15 +527,135 @@ export const ordersApi = {
 
   get: (id: string) => get<Order>(`/orders/${id}/`),
 
-  /** Note: only `product` and `quantity`; everything else is server-set. */
-  create: (productId: string, quantity: string) =>
-    post<WithResource<"order", Order>>("/orders/", {
-      product: productId,
-      quantity,
-    }),
+  create: (
+    productId: string,
+    quantity: string,
+    delivery_information = ""
+  ) =>
+    postWithHeaders<WithResource<"order", Order>>(
+      "/orders/",
+      { product: productId, quantity, delivery_information },
+      { "Idempotency-Key": crypto.randomUUID() }
+    ),
 
   setStatus: (id: string, status: OrderStatus) =>
     patch<WithResource<"order", Order>>(`/orders/${id}/status/`, { status }),
+  confirmQuality: (id: string) =>
+    post<WithResource<"order", Order>>(`/orders/${id}/confirm-quality/`),
+  dispute: (id: string, reason: string) =>
+    post<WithResource<"order", Order>>(`/orders/${id}/dispute/`, { reason }),
+  release: (id: string, external_reference: string) =>
+    post<WithResource<"order", Order>>(`/orders/${id}/release/`, {
+      external_reference,
+    }),
+  resolveDispute: (
+    id: string,
+    decision: "release" | "refund",
+    external_reference = ""
+  ) =>
+    post<WithResource<"order", Order>>(`/orders/${id}/resolve-dispute/`, {
+      decision,
+      external_reference,
+    }),
+};
+
+export const walletApi = {
+  get: () => get<Wallet>("/wallet/"),
+  transactions: (params?: {
+    page?: number;
+    type?: string;
+    date_from?: string;
+    date_to?: string;
+  }) => get<Paginated<WalletTransaction>>("/wallet/transactions/", toParams(params)),
+  funding: () => get<Paginated<WalletFundingRequest>>("/wallet/funding/"),
+  requestFunding: (data: {
+    amount: string;
+    payment_method: string;
+    external_reference: string;
+  }) => post<WalletFundingRequest>("/wallet/funding/", data),
+  initializeChapaFunding: (amount: string) =>
+    postWithHeaders<WalletFundingRequest>(
+      "/wallet/funding/chapa/",
+      { amount },
+      { "Idempotency-Key": crypto.randomUUID() }
+    ),
+  verifyChapaFunding: (id: string) =>
+    post<WalletFundingRequest>(`/wallet/funding/${id}/verify/`),
+  reviewFunding: (id: string, approve: boolean, notes = "") =>
+    post<{ success: true; funding_request: WalletFundingRequest }>(
+      `/wallet/funding/${id}/review/`,
+      { approve, notes }
+    ),
+  payouts: () => get<Paginated<WalletPayoutRequest>>("/wallet/payouts/"),
+  requestPayout: (data: {
+    amount: string;
+    destination?: string;
+    payout_account?: string;
+  }) =>
+    postWithHeaders<WalletPayoutRequest>(
+      "/wallet/payouts/",
+      data,
+      { "Idempotency-Key": crypto.randomUUID() }
+    ),
+  banks: (search?: string) =>
+    get<Paginated<PayoutBank>>("/wallet/banks/", toParams({ search })),
+  bankAccounts: (params?: {
+    page?: number;
+    search?: string;
+    role?: string;
+    bank?: string;
+    status?: string;
+  }) => get<Paginated<BankAccount>>("/wallet/bank-accounts/", toParams(params)),
+  createBankAccount: (data: {
+    bank: number;
+    account_holder_name: string;
+    account_number: string;
+    confirm_account_number: string;
+    branch?: string;
+    branch_code?: string;
+    account_type?: string;
+    nickname?: string;
+    is_default: boolean;
+  }) => post<BankAccount>("/wallet/bank-accounts/", data),
+  updateBankAccount: (
+    id: string,
+    data: Partial<{
+      bank: number;
+      account_holder_name: string;
+      account_number: string;
+      confirm_account_number: string;
+      branch: string;
+      branch_code: string;
+      account_type: string;
+      nickname: string;
+      is_default: boolean;
+    }>
+  ) => patch<BankAccount>(`/wallet/bank-accounts/${id}/`, data),
+  deleteBankAccount: (id: string) =>
+    del<Record<string, never>>(`/wallet/bank-accounts/${id}/`),
+  fullBankAccountDetails: (id: string) =>
+    get<BankAccountFullDetails>(`/wallet/bank-accounts/${id}/full-details/`),
+  requestBankAccountReview: (id: string, notes: string) =>
+    post<BankAccount>(`/wallet/bank-accounts/${id}/require-review/`, { notes }),
+  reviewPayout: (
+    id: string,
+    approve: boolean,
+    external_reference = "",
+    notes = ""
+  ) =>
+    post<{ success: true; payout_request: WalletPayoutRequest }>(
+      `/wallet/payouts/${id}/review/`,
+      { approve, external_reference, notes }
+    ),
+  agreements: (params?: { page?: number }) =>
+    get<Paginated<BusinessAgreement>>("/wallet/agreements/", toParams(params)),
+  reviews: (userId?: string, page?: number) =>
+    get<Paginated<Review>>(
+      "/wallet/reviews/",
+      toParams({ user: userId, page })
+    ),
+  createReview: (order: string, rating: number, comment: string) =>
+    post<Review>("/wallet/reviews/", { order, rating, comment }),
 };
 
 // ---------------------------------------------------------------------------

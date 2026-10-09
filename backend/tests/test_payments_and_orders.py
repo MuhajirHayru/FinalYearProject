@@ -22,7 +22,7 @@ def test_wholesaler_places_order_and_stock_is_reserved(api, wholesaler, farmer_p
     order = Order.objects.get()
     assert order.reference.startswith("#ORD")
     assert order.total_amount == 1250  # 50 kg x 25 ETB
-    assert order.status == OrderStatus.PROCESSING
+    assert order.status == OrderStatus.PENDING_SELLER_APPROVAL
     farmer_product.refresh_from_db()
     assert float(farmer_product.quantity) == 150  # 200 - 50 reserved
 

@@ -100,7 +100,17 @@ class FarmerDashboardView(APIView):
                     "unread_messages": _unread_message_count(user),
                     "total_listings": listings.count(),
                     "pending_orders": orders_received.filter(
-                        status=OrderStatus.PROCESSING
+                        status__in=(
+                            OrderStatus.PENDING_SELLER_APPROVAL,
+                            OrderStatus.ACCEPTED,
+                            OrderStatus.PROCESSING,
+                            OrderStatus.CONFIRMED,
+                            OrderStatus.SHIPPED,
+                            OrderStatus.DELIVERED,
+                            OrderStatus.AWAITING_QUALITY_CONFIRMATION,
+                            OrderStatus.AWAITING_PAYMENT_RELEASE,
+                            OrderStatus.DISPUTED,
+                        )
                     ).count(),
                     "total_earned": int(verified.aggregate(t=Sum("amount"))["t"] or 0),
                     "pending_payments": payments.filter(
@@ -132,8 +142,9 @@ class WholesalerDashboardView(APIView):
     def get(self, request):
         user = request.user
         orders = Order.objects.filter(wholesaler=user).select_related(
-            "farmer", "product"
+            "farmer", "retailer", "product", "wholesaler"
         )
+        purchases = orders.filter(retailer__isnull=True)
         payments = PaymentRecord.objects.filter(submitted_by=user)
 
         def fallback():
@@ -152,9 +163,9 @@ class WholesalerDashboardView(APIView):
                 "stats": {
                     "total_orders": orders.count(),
                     "total_spent": int(
-                        orders.open().aggregate(t=Sum("total_amount"))["t"] or 0
+                        purchases.open().aggregate(t=Sum("total_amount"))["t"] or 0
                     ),
-                    "favorite_sellers": Order.objects.filter(wholesaler=user)
+                    "favorite_sellers": purchases
                     .values("farmer")
                     .distinct()
                     .count(),
@@ -163,7 +174,17 @@ class WholesalerDashboardView(APIView):
                         owner=user, status=ProductStatus.ACTIVE
                     ).count(),
                     "pending_orders": orders.filter(
-                        status=OrderStatus.PROCESSING
+                        status__in=(
+                            OrderStatus.PENDING_SELLER_APPROVAL,
+                            OrderStatus.ACCEPTED,
+                            OrderStatus.PROCESSING,
+                            OrderStatus.CONFIRMED,
+                            OrderStatus.SHIPPED,
+                            OrderStatus.DELIVERED,
+                            OrderStatus.AWAITING_QUALITY_CONFIRMATION,
+                            OrderStatus.AWAITING_PAYMENT_RELEASE,
+                            OrderStatus.DISPUTED,
+                        )
                     ).count(),
                     "pending_payments": payments.filter(
                         status=PaymentStatus.PENDING
@@ -176,7 +197,7 @@ class WholesalerDashboardView(APIView):
                     {
                         "id": str(o.id),
                         "reference": o.reference,
-                        "seller": o.farmer.full_name,
+                        "seller": o.seller.full_name,
                         "product": o.product.title,
                         "total": f"{o.total_amount:,.0f} ETB",
                         "status": o.status,

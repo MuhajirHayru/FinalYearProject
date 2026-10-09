@@ -3,6 +3,8 @@ import os
 from datetime import timedelta
 from pathlib import Path
 
+from corsheaders.defaults import default_headers
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = os.environ.get(
@@ -132,6 +134,7 @@ CORS_ALLOWED_ORIGINS = [
     if origin
 ]
 CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_HEADERS = (*default_headers, "idempotency-key")
 # The refresh token lives in an httpOnly cookie, so browser-initiated writes are
 # additionally constrained by CORS pre-flight plus the cookie SameSite policy.
 CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS
@@ -193,3 +196,21 @@ CHANNEL_LAYERS = {
 
 # Frontend origin used when pushing WS URLs to clients (dev only)
 FRONTEND_WS_HOST = os.environ.get("FRONTEND_WS_HOST", "localhost:8000")
+PRESENCE_TIMEOUT_SECONDS = int(os.environ.get("PRESENCE_TIMEOUT_SECONDS", "90"))
+PRESENCE_HEARTBEAT_SECONDS = int(os.environ.get("PRESENCE_HEARTBEAT_SECONDS", "25"))
+
+# Chapa's hosted checkout uses server-side API calls. Only test credentials are
+# accepted by the integration; production payments are deliberately disabled.
+CHAPA_TEST_MODE = os.environ.get("CHAPA_TEST_MODE", "1") == "1"
+CHAPA_SECRET_KEY = os.environ.get("CHAPA_SECRET_KEY", "")
+CHAPA_PUBLIC_KEY = os.environ.get("CHAPA_PUBLIC_KEY", "")
+CHAPA_ENCRYPTION_KEY = os.environ.get("CHAPA_ENCRYPTION_KEY", "")
+CHAPA_WEBHOOK_SECRET = os.environ.get("CHAPA_WEBHOOK_SECRET", "")
+CHAPA_API_BASE_URL = "https://api.chapa.co/v1"
+CHAPA_TIMEOUT_SECONDS = 15
+BANK_ACCOUNT_ENCRYPTION_KEY = os.environ.get("BANK_ACCOUNT_ENCRYPTION_KEY", "")
+FRONTEND_BASE_URL = os.environ.get("FRONTEND_BASE_URL", "http://localhost:3000")
+CHAPA_CALLBACK_URL = os.environ.get(
+    "CHAPA_CALLBACK_URL",
+    "http://localhost:8000/api/v1/wallet/chapa/webhook/",
+)

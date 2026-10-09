@@ -26,7 +26,14 @@ def _resolve_recipients(user_ids=None, roles=None, exclude=None):
     return list(qs)
 
 
-def notify(user_ids=None, roles=None, type="SYSTEM", message="", actor=None):
+def notify(
+    user_ids=None,
+    roles=None,
+    type="SYSTEM",
+    message="",
+    actor=None,
+    target_url="",
+):
     """Create in-app notifications for specific users or roles.
 
     Returns the list of created ``Notification`` rows.
@@ -38,7 +45,13 @@ def notify(user_ids=None, roles=None, type="SYSTEM", message="", actor=None):
     created = list(
         Notification.objects.bulk_create(
             [
-                Notification(recipient=u, type=type, message=message, actor=actor)
+                Notification(
+                    recipient=u,
+                    type=type,
+                    message=message,
+                    actor=actor,
+                    target_url=target_url,
+                )
                 for u in recipients
             ]
         )
@@ -62,6 +75,7 @@ def _payload(notification):
         "type": notification.type,
         "type_display": notification.get_type_display(),
         "message": notification.message,
+        "target_url": notification.target_url,
         "is_read": notification.is_read,
         "created_at": notification.created_at.isoformat(),
     }

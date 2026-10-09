@@ -13,6 +13,7 @@ import {
 } from "@/components/ui";
 import { superAdminApi } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/context";
+import { BankAccountManager } from "@/components/payments/BankAccountManager";
 import { formatDateTime } from "@/lib/format";
 import type { PlatformSettings } from "@/lib/types";
 
@@ -22,12 +23,16 @@ import type { PlatformSettings } from "@/lib/types";
  * `/super-admin/settings`).
  */
 export default function SettingsPage() {
-  const { hasRole } = useAuth();
+  const { hasRole, user } = useAuth();
   const [settings, setSettings] = useState<PlatformSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
+    if (!user || !["SUPER_ADMIN", "FINANCIAL_MANAGER", "USER_ADMIN"].includes(user.role)) {
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
     superAdminApi
       .settings()
@@ -48,7 +53,7 @@ export default function SettingsPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [user]);
 
   const rows: [string, string][] = settings
     ? [
@@ -73,8 +78,11 @@ export default function SettingsPage() {
         </div>
       )}
 
-      <div className="grid max-w-3xl gap-6">
-        <Card>
+      <div className="grid gap-6">
+        {user && ["FARMER", "WHOLESALER", "RETAILER"].includes(user.role) && (
+          <BankAccountManager />
+        )}
+        {user && ["SUPER_ADMIN", "FINANCIAL_MANAGER", "USER_ADMIN"].includes(user.role) && <Card>
           <CardHeader
             title="Platform policy"
             subtitle="Set centrally by the Super Admin"
@@ -127,9 +135,9 @@ export default function SettingsPage() {
           ) : (
             <div className="p-6 text-sm text-gray-600">No settings available.</div>
           )}
-        </Card>
+        </Card>}
 
-        <Card>
+        {user && <Card>
           <CardHeader
             title="Your account"
             subtitle="Sign-in identity and role are controlled by a User Admin"
@@ -141,7 +149,7 @@ export default function SettingsPage() {
               audit log.
             </p>
           </div>
-        </Card>
+        </Card>}
       </div>
     </AppShell>
   );

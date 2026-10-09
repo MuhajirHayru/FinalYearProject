@@ -8,19 +8,22 @@ class UserSerializer(serializers.ModelSerializer):
     role_display = serializers.CharField(source="get_role_display", read_only=True)
     status_display = serializers.CharField(source="get_status_display", read_only=True)
     permissions = serializers.SerializerMethodField()
+    financially_verified = serializers.BooleanField(read_only=True)
+    is_online = serializers.BooleanField(read_only=True)
     password = serializers.CharField(write_only=True, min_length=8, required=True)
 
     class Meta:
         model = User
         fields = [
             "id", "full_name", "email", "password", "phone", "location",
-            "latitude", "longitude", "role", "status", "role_display",
+            "profile_photo", "latitude", "longitude", "role", "status", "role_display",
             "status_display", "rejection_reason", "privacy_policy_accepted",
-            "permissions", "created_at", "updated_at",
+            "permissions", "financially_verified", "is_online", "created_at",
+            "updated_at",
         ]
         read_only_fields = [
             "id", "status", "rejection_reason", "permissions",
-            "created_at", "updated_at",
+            "created_at", "updated_at", "profile_photo",
         ]
 
     @extend_schema_field(serializers.ListField(child=serializers.CharField()))
@@ -84,13 +87,27 @@ class PublicUserSerializer(serializers.ModelSerializer):
     """Counterparty view. Excludes email/coordinates to protect privacy (4.10)."""
 
     role_display = serializers.CharField(source="get_role_display", read_only=True)
+    financially_verified = serializers.BooleanField(read_only=True)
+    is_online = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = User
         fields = [
             "id", "full_name", "phone", "location", "role",
-            "role_display", "status", "created_at",
+            "role_display", "status", "profile_photo", "financially_verified",
+            "is_online", "created_at",
         ]
+
+
+class ProfilePhotoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ["profile_photo"]
+
+    def validate_profile_photo(self, value):
+        if value.size > 5 * 1024 * 1024:
+            raise serializers.ValidationError("Profile images must be 5 MB or smaller.")
+        return value
 
 
 class DirectoryUserSerializer(serializers.ModelSerializer):

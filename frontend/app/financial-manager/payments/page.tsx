@@ -2,6 +2,7 @@
 
 import { AppShell } from "@/components/layout/AppShell";
 import { PaymentsTable } from "@/components/payments/PaymentsTable";
+import { FinancialWorkflowQueue } from "@/components/payments/FinancialWorkflowQueue";
 
 export default function FinancialManagerPaymentsPage() {
   return (
@@ -13,6 +14,7 @@ export default function FinancialManagerPaymentsPage() {
         </p>
       </div>
       <PaymentsTable />
+      <FinancialWorkflowQueue />
     </AppShell>
   );
 }

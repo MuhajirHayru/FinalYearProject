@@ -9,10 +9,16 @@ from .models import ChatChannel, Message
 
 class MessageSerializer(serializers.ModelSerializer):
     sender_name = serializers.CharField(source="sender.full_name", read_only=True)
+    sender_financially_verified = serializers.BooleanField(
+        source="sender.financially_verified", read_only=True
+    )
 
     class Meta:
         model = Message
-        fields = ["id", "channel", "sender", "sender_name", "content", "sent_at", "is_read"]
+        fields = [
+            "id", "channel", "sender", "sender_name",
+            "sender_financially_verified", "content", "sent_at", "is_read",
+        ]
         # The channel comes from the nested route and the sender from the request
         # user, so neither may be supplied by the client.
         read_only_fields = ["id", "channel", "sender", "sent_at", "is_read"]
@@ -47,7 +53,12 @@ class ChatChannelSerializer(serializers.ModelSerializer):
         msg = obj.messages.order_by("-sent_at").first()
         if not msg:
             return None
-        return {"content": msg.content, "sender_name": msg.sender.full_name, "sent_at": msg.sent_at}
+        return {
+            "content": msg.content,
+            "sender_name": msg.sender.full_name,
+            "sender_financially_verified": msg.sender.financially_verified,
+            "sent_at": msg.sent_at,
+        }
 
     @extend_schema_field(serializers.IntegerField)
     def get_unread_count(self, obj):

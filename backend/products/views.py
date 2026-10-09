@@ -10,7 +10,7 @@ import os
 import uuid
 
 from django.conf import settings
-from django.db.models import Q
+from django.db.models import Avg, Count, Q
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -73,6 +73,10 @@ class _BaseListingViewSet(
         qs = (
             Product.objects.filter(product_type=self.listing_type)
             .select_related("owner")
+            .annotate(
+                owner_average_rating=Avg("owner__reviews_received__rating"),
+                owner_review_count=Count("owner__reviews_received"),
+            )
         )
 
         if self._own_listings_requested():

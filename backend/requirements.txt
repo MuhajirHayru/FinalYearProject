@@ -7,6 +7,7 @@ channels-redis>=4.2
 daphne>=4.1
 drf-spectacular>=0.27
 Pillow>=10.0
+cryptography>=42.0
 redis>=5.0
 # PostgreSQL driver: set DB_ENGINE=django.db.backends.postgresql for production.
 psycopg[binary]>=3.1

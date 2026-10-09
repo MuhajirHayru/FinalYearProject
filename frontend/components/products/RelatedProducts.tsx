@@ -3,6 +3,9 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { MapPin, Sprout } from "lucide-react";
+import { Avatar } from "@/components/ui";
+import { OnlineStatus } from "@/components/presence/PresenceProvider";
+import { FinanciallyVerifiedBadge } from "@/components/users/FinanciallyVerifiedBadge";
 import { productsApi } from "@/lib/api/client";
 import { formatEtb, formatNumber, mediaUrl } from "@/lib/format";
 import type { Product } from "@/lib/types";
@@ -145,9 +148,22 @@ export function RelatedProducts({
                 <p className="line-clamp-1 text-sm font-semibold text-gray-900 group-hover:text-green-700">
                   {item.title}
                 </p>
-                <p className="line-clamp-1 text-xs text-gray-500">
-                  {item.owner_name}
-                </p>
+                <div className="flex min-w-0 items-center gap-2">
+                  <Avatar name={item.owner_name} size="sm" src={item.owner_profile_photo} />
+                  <div className="min-w-0">
+                    <p className="flex items-center gap-1 truncate text-xs text-gray-500">
+                      {item.owner_name} · {item.owner_role}
+                      {item.owner_financially_verified && <FinanciallyVerifiedBadge />}
+                    </p>
+                    {(item.owner_role === "Farmer" ||
+                      item.owner_role === "Wholesaler") && (
+                      <OnlineStatus
+                        userId={item.owner}
+                        initiallyOnline={item.owner_is_online}
+                      />
+                    )}
+                  </div>
+                </div>
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-sm font-bold text-gray-900">
                     {formatEtb(item.price_per_unit)}

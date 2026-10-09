@@ -310,9 +310,11 @@ const AVATAR_TONES = [
 export function Avatar({
   name,
   size = "md",
+  src,
 }: {
   name: string | null | undefined;
   size?: "sm" | "md" | "lg";
+  src?: string | null;
 }) {
   const seed = (name ?? "").split("").reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
   const tone = AVATAR_TONES[seed % AVATAR_TONES.length];
@@ -324,13 +326,30 @@ export function Avatar({
   return (
     <span
       className={cn(
-        "inline-flex shrink-0 items-center justify-center rounded-full font-semibold",
+        "relative inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full font-semibold",
         tone,
         sizes[size]
       )}
       aria-hidden
     >
       {initials(name)}
+      {src && (
+        <img
+          src={
+            src.startsWith("http")
+              ? src
+              : `${(
+                  process.env.NEXT_PUBLIC_API_URL ??
+                  "http://localhost:8000/api/v1"
+                ).replace(/\/api\/v1\/?$/, "")}${src.startsWith("/") ? src : `/${src}`}`
+          }
+          alt=""
+          className="absolute inset-0 h-full w-full object-cover"
+          onError={(event) => {
+            event.currentTarget.style.display = "none";
+          }}
+        />
+      )}
     </span>
   );
 }

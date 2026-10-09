@@ -41,10 +41,17 @@ export type UnitOfMeasure =
 
 /** Title-Case on purpose — matches `payments/models.py`. */
 export type OrderStatus =
+  | "Pending seller approval"
+  | "Accepted"
   | "Processing"
   | "Confirmed"
   | "Shipped"
   | "Delivered"
+  | "Awaiting quality confirmation"
+  | "Awaiting payment release"
+  | "Completed"
+  | "Rejected"
+  | "Disputed"
   | "Cancelled";
 
 export type PaymentStatus = "PENDING" | "VERIFIED" | "FLAGGED" | "DISPUTED";
@@ -102,6 +109,7 @@ export interface User {
   email: string;
   phone: string;
   location: string;
+  profile_photo: string | null;
   /** DecimalField serialises to a JSON string. */
   latitude: string | null;
   longitude: string | null;
@@ -112,6 +120,8 @@ export interface User {
   rejection_reason: string;
   privacy_policy_accepted: boolean;
   permissions: string[];
+  financially_verified: boolean;
+  is_online: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -125,12 +135,15 @@ export interface LoginUser {
   full_name: string;
   email: string;
   phone: string;
+  profile_photo: string;
   role: UserRole;
   role_display: string;
   status: AccountStatus;
   status_display: string;
   location: string;
   permissions: string[];
+  financially_verified: boolean;
+  is_online: boolean;
 }
 
 /** `users/serializers.py` PublicUser — 8 keys, no email by design. */
@@ -142,6 +155,9 @@ export interface PublicUser {
   role: UserRole;
   role_display: string;
   status: AccountStatus;
+  profile_photo: string;
+  financially_verified: boolean;
+  is_online: boolean;
   created_at: string;
 }
 
@@ -344,8 +360,13 @@ export interface Product {
   owner_name: string;
   owner_location: string;
   owner_role: string;
+  owner_profile_photo: string | null;
+  owner_financially_verified: boolean;
+  owner_is_online: boolean;
   owner_latitude: string | null;
   owner_longitude: string | null;
+  owner_average_rating: number | null;
+  owner_review_count: number;
   /** Flat array of relative URLs beginning with "/media/". */
   images: string[];
   is_owner: boolean;
@@ -410,6 +431,7 @@ export interface Message {
   channel: string;
   sender: string;
   sender_name: string;
+  sender_financially_verified: boolean;
   content: string;
   /** Note: `sent_at`, not `created_at`. */
   sent_at: string;
@@ -428,6 +450,7 @@ export interface ChatChannel {
   last_message: {
     content: string;
     sender_name: string;
+    sender_financially_verified: boolean;
     sent_at: string;
   } | null;
   unread_count: number;
@@ -495,6 +518,12 @@ export interface Order {
   wholesaler_name: string;
   farmer: string;
   farmer_name: string;
+  retailer: string | null;
+  retailer_name: string | null;
+  buyer_name: string;
+  seller_name: string;
+  buyer_financially_verified: boolean;
+  seller_is_online: boolean;
   product: string;
   product_title: string;
   quantity: string;
@@ -502,6 +531,13 @@ export interface Order {
   total: string;
   status: OrderStatus;
   status_display: string;
+  payment_status: string;
+  payment_status_display: string;
+  delivery_information: string;
+  delivered_at: string | null;
+  quality_confirmed_at: string | null;
+  dispute_reason: string;
+  agreement_status: string | null;
   /** Computed legal next states — drives the status buttons. */
   allowed_transitions: OrderStatus[];
   date: string;
@@ -519,10 +555,148 @@ export interface Notification {
   type: NotificationType;
   type_display: string;
   message: string;
+  target_url: string;
   is_read: boolean;
   /** Actor UUID. There is no `recipient` field. */
   actor: string | null;
   created_at: string;
+}
+
+export interface Wallet {
+  id: string;
+  available_balance: string;
+  held_balance: string;
+  currency: string;
+  updated_at: string;
+  incoming_total: string;
+  outgoing_total: string;
+}
+
+export interface PayoutBank {
+  id: number;
+  code: string;
+  name: string;
+  source_url: string;
+}
+
+export type BankAccountStatus = "NOT_VERIFIED" | "REQUIRES_REVIEW";
+
+export interface BankAccount {
+  id: string;
+  user_id: string;
+  user_name: string;
+  user_role: UserRole;
+  bank: number;
+  bank_name: string;
+  account_holder_name: string;
+  masked_account_number: string;
+  branch: string;
+  branch_code: string;
+  account_type: string;
+  nickname: string;
+  status: BankAccountStatus;
+  is_default: boolean;
+  payout_requests?: {
+    id: string;
+    amount: string;
+    status: string;
+    submitted_at: string;
+  }[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BankAccountFullDetails extends BankAccount {
+  account_number: string;
+}
+
+export interface WalletFundingRequest {
+  id: string;
+  wallet: string;
+  wallet_owner: string;
+  amount: string;
+  wallet_owner_role: UserRole;
+  payment_method: string;
+  external_reference: string;
+  status:
+    | "PENDING"
+    | "AWAITING_PAYMENT"
+    | "PAYMENT_VERIFICATION_PENDING"
+    | "AWAITING_APPROVAL"
+    | "VERIFIED"
+    | "APPROVED"
+    | "REJECTED"
+    | "FAILED";
+  payment_mode: "MANUAL" | "TEST";
+  checkout_url: string;
+  provider_status: string;
+  provider_transaction_id: string;
+  verified_amount: string | null;
+  verified_currency: string;
+  payment_verified: boolean;
+  payment_verified_at: string | null;
+  submitted_at: string;
+  reviewed_at: string | null;
+  reviewed_by_name: string | null;
+  review_notes: string;
+}
+
+export interface WalletPayoutRequest {
+  id: string;
+  wallet: string;
+  wallet_owner: string;
+  amount: string;
+  destination: string;
+  payout_account: string | null;
+  status: "PENDING" | "PAID" | "REJECTED";
+  submitted_at: string;
+  reviewed_at: string | null;
+  external_reference: string;
+  review_notes: string;
+}
+
+export interface WalletTransaction {
+  id: string;
+  transaction_type: string;
+  amount: string;
+  available_delta: string;
+  held_delta: string;
+  reference: string;
+  external_reference: string;
+  description: string;
+  order: string | null;
+  order_reference: string | null;
+  created_at: string;
+}
+
+export interface BusinessAgreement {
+  id: string;
+  order: string;
+  order_reference: string;
+  buyer_name: string;
+  seller_name: string;
+  product_title: string;
+  total_amount: string;
+  terms: string;
+  status: string;
+  activated_at: string;
+  completed_at: string | null;
+}
+
+export interface Review {
+  id: string;
+  order: string;
+  order_reference: string;
+  reviewer: string;
+  reviewer_name: string;
+  reviewer_role: UserRole;
+  reviewee: string;
+  reviewee_name: string;
+  reviewee_role: UserRole;
+  rating: number;
+  comment: string;
+  created_at: string;
+  verified_transaction: boolean;
 }
 
 // ---------------------------------------------------------------------------

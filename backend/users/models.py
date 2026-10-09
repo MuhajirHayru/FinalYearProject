@@ -1,8 +1,11 @@
 import uuid
+from datetime import timedelta
 
 from django.conf import settings
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
+from django.core.validators import FileExtensionValidator
+from django.utils import timezone
 
 
 class Role(models.TextChoices):
@@ -61,6 +64,11 @@ class User(AbstractBaseUser, PermissionsMixin):
     email = models.EmailField(unique=True, max_length=255)
     phone = models.CharField(max_length=20, blank=True, default="")
     location = models.CharField(max_length=255, blank=True, default="")
+    profile_photo = models.ImageField(
+        upload_to="profile-photos/%Y/%m/",
+        blank=True,
+        validators=[FileExtensionValidator(["jpg", "jpeg", "png", "webp"])],
+    )
     latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
     longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
     role = models.CharField(max_length=30, choices=Role.choices, default=Role.FARMER)
@@ -93,6 +101,39 @@ class User(AbstractBaseUser, PermissionsMixin):
     @property
     def role_display(self):
         return self.get_role_display()
+
+    @property
+    def financially_verified(self):
+        if self.status != AccountStatus.APPROVED or self.role not in (
+            Role.WHOLESALER,
+            Role.RETAILER,
+        ):
+            return False
+        from payments.models import FundingStatus, WalletFundingRequest
+
+        return WalletFundingRequest.objects.filter(
+            wallet__user_id=self.pk,
+            payment_method="Chapa",
+            payment_mode="TEST",
+            payment_verified=True,
+            verified_amount=models.F("amount"),
+            verified_currency=models.F("wallet__currency"),
+            status=FundingStatus.APPROVED,
+        ).exists()
+
+    @property
+    def is_online(self):
+        if self.status != AccountStatus.APPROVED or self.role not in (
+            Role.FARMER,
+            Role.WHOLESALER,
+        ):
+            return False
+        timeout = getattr(settings, "PRESENCE_TIMEOUT_SECONDS", 90)
+        return PresenceSession.objects.filter(
+            user_id=self.pk,
+            disconnected_at__isnull=True,
+            last_seen_at__gte=timezone.now() - timedelta(seconds=timeout),
+        ).exists()
 
     def approve(self, actor=None):
         """PENDING_APPROVAL -> APPROVED (fig 3.9, FR-UA-02)."""
@@ -211,6 +252,23 @@ class AuditLog(models.Model):
 
     def __str__(self):
         return f"{self.action} on {self.target} by {self.actor}"
+
+
+class PresenceSession(models.Model):
+    """One heartbeat lease per authenticated websocket connection."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="presence_sessions"
+    )
+    last_seen_at = models.DateTimeField(default=timezone.now)
+    disconnected_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "user_presence_sessions"
+        indexes = [
+            models.Index(fields=["user", "disconnected_at", "last_seen_at"]),
+        ]
 
 
 # Endpoint-level permission matrix, surfaced through /api/v1/auth/me/ so the
