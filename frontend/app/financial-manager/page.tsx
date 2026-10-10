@@ -23,8 +23,12 @@ import {
   Th,
 } from "@/components/ui";
 import { dashboardApi, paymentsApi, reportsApi } from "@/lib/api/client";
-import { formatEtb, formatInt, shortRelative } from "@/lib/format";
-import type { PaymentRecord, PaymentSummaryData } from "@/lib/types";
+import { formatEtb, formatEtbPrecise, formatInt, shortRelative } from "@/lib/format";
+import type {
+  FinancialOperationsSummary,
+  PaymentRecord,
+  PaymentSummaryData,
+} from "@/lib/types";
 
 const PERIODS = [
   { value: "7", label: "7 days" },
@@ -35,6 +39,7 @@ const PERIODS = [
 export default function FinancialManagerDashboardPage() {
   const router = useRouter();
   const [summary, setSummary] = useState<PaymentSummaryData | null>(null);
+  const [operations, setOperations] = useState<FinancialOperationsSummary | null>(null);
   const [recent, setRecent] = useState<PaymentRecord[]>([]);
   const [period, setPeriod] = useState("30");
   const [volume, setVolume] = useState<{ date: string; count: number; total: number }[]>(
@@ -45,13 +50,16 @@ export default function FinancialManagerDashboardPage() {
 
   const load = useCallback(async () => {
     setError("");
+    setLoading(true);
     try {
-      const [s, list, vol] = await Promise.all([
+      const [s, ops, list, vol] = await Promise.all([
         dashboardApi.payments(),
+        dashboardApi.financialOperations(),
         paymentsApi.list({ page: 1, status: "PENDING" }),
         reportsApi.transactionVolume(Number(period)),
       ]);
       setSummary(s);
+      setOperations(ops);
       setRecent(list.results.slice(0, 6));
       setVolume(vol.series);
     } catch (err) {
@@ -73,8 +81,26 @@ export default function FinancialManagerDashboardPage() {
     );
   }
 
+  if (!summary || !operations) {
+    return (
+      <AppShell title="Financial Dashboard" allow={["FINANCIAL_MANAGER"]}>
+        <ErrorBanner
+          message={error || "Financial dashboard data is unavailable."}
+          onRetry={() => void load()}
+        />
+      </AppShell>
+    );
+  }
+
   const s = summary?.summary;
   const peak = volume.reduce((max, v) => Math.max(max, v.total), 0);
+  const totalRecords = Object.values(summary.tabs).reduce(
+    (total, count) => total + count,
+    0
+  );
+  const escrowRelease = operations.escrow.AWAITING_PAYMENT_RELEASE;
+  const escrowDisputed = operations.escrow.DISPUTED;
+  const escrowCount = (escrowRelease?.count ?? 0) + (escrowDisputed?.count ?? 0);
 
   return (
     <AppShell title="Financial Dashboard" allow={["FINANCIAL_MANAGER"]}>
@@ -102,26 +128,82 @@ export default function FinancialManagerDashboardPage() {
           sublabel={`${formatInt(s?.verified_count ?? 0)} payments verified`}
         />
         <StatCard
-          label="Flagged"
+          label="Flagged for Review"
           value={formatInt(s?.flagged_count ?? 0)}
           icon={<Flag className="h-6 w-6" />}
           iconBg="bg-red-500"
-          sublabel={`${formatEtb(s?.flagged_amount ?? 0)} in dispute`}
+          sublabel={`${formatEtb(s?.flagged_amount ?? 0)} flagged; disputes are tracked separately`}
         />
         <StatCard
           label="Payment Records"
-          value={formatInt(summary?.tabs.PENDING ?? 0)}
+          value={formatInt(totalRecords)}
           icon={<Wallet className="h-6 w-6" />}
           iconBg="bg-blue-500"
-          sublabel={`${formatInt(summary?.tabs.DISPUTED ?? 0)} disputed, ${formatInt(summary?.tabs.VERIFIED ?? 0)} verified`}
+          sublabel={`${formatInt(summary.tabs.PENDING)} pending · ${formatInt(summary.tabs.VERIFIED)} verified · ${formatInt(summary.tabs.FLAGGED)} flagged · ${formatInt(summary.tabs.DISPUTED)} disputed`}
         />
       </div>
+
+      <section className="mt-8 space-y-4" aria-labelledby="wallet-operations-heading">
+        <div>
+          <h2 id="wallet-operations-heading" className="text-lg font-bold text-gray-900">
+            Wallet operations
+          </h2>
+          <p className="mt-1 text-sm text-gray-500">
+            Participant wallet balances are separate from submitted payment records. Funding and payout amounts are request totals, not proof of external settlement.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+          <StatCard
+            label="Available Wallet Balances"
+            value={formatEtbPrecise(operations.wallets.available_balance)}
+            icon={<Wallet className="h-6 w-6" />}
+            iconBg="bg-indigo-600"
+            sublabel={`${formatEtbPrecise(operations.wallets.held_balance)} held across ${formatInt(operations.wallets.count)} participant wallets`}
+          />
+          <StatCard
+            label="Funding Awaiting Review"
+            value={formatEtbPrecise(operations.funding.awaiting_review_amount)}
+            icon={<Clock className="h-6 w-6" />}
+            iconBg="bg-amber-500"
+            sublabel={`${formatInt(operations.funding.awaiting_review_count)} requests awaiting a finance decision`}
+            actionLabel="Review funding"
+            onAction={() => router.push("/financial-manager/payments?tab=funding")}
+          />
+          <StatCard
+            label="Payouts Awaiting Review"
+            value={formatEtbPrecise(operations.payouts.pending_amount)}
+            icon={<Receipt className="h-6 w-6" />}
+            iconBg="bg-orange-600"
+            sublabel={`${formatInt(operations.payouts.pending_count)} payout requests`}
+            actionLabel="Review payouts"
+            onAction={() => router.push("/financial-manager/payments?tab=payouts")}
+          />
+          <StatCard
+            label="Escrow Work Queue"
+            value={formatInt(escrowCount)}
+            icon={<TrendingUp className="h-6 w-6" />}
+            iconBg="bg-violet-600"
+            sublabel={`${formatInt(escrowRelease?.count ?? 0)} awaiting release · ${formatInt(escrowDisputed?.count ?? 0)} disputed`}
+            actionLabel="Review escrow"
+            onAction={() => router.push("/financial-manager/payments?tab=escrow")}
+          />
+          <StatCard
+            label="Beneficiary Accounts to Review"
+            value={formatInt(operations.beneficiaries.requires_review_count)}
+            icon={<BadgeCheck className="h-6 w-6" />}
+            iconBg="bg-teal-600"
+            sublabel={`${formatInt(operations.beneficiaries.count)} registered accounts; registration is not verification`}
+            actionLabel="View accounts"
+            onAction={() => router.push("/financial-manager/bank-accounts")}
+          />
+        </div>
+      </section>
 
       <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-5">
         <Card className="xl:col-span-3">
           <CardHeader
-            title="Transaction Volume"
-            subtitle="Daily payment totals submitted by wholesalers"
+            title="Payment Record Volume"
+            subtitle="Daily amounts in the payment-record workflow; wallet deposits and payouts are shown separately above"
             action={
               <div className="flex gap-1">
                 {PERIODS.map((p) => (
@@ -167,11 +249,7 @@ export default function FinancialManagerDashboardPage() {
             )}
             <div className="mt-3 flex justify-between text-xs text-gray-400">
               <span>{volume[0]?.date ?? ""}</span>
-              <span>
-                {volume.length > 0
-                  ? `${volume[0]?.date} to ${volume[volume.length - 1]?.date}`
-                  : ""}
-              </span>
+              <span>{volume[volume.length - 1]?.date ?? ""}</span>
             </div>
           </div>
         </Card>

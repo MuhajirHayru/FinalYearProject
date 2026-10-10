@@ -251,78 +251,91 @@ export interface NavItem {
   label: string;
   href: string;
   icon: string;
+  group?: string;
 }
 
-/** Sidebar nav for the three commercial roles (Fig 4.6 / 4.7). */
+/** Role-specific navigation data consumed by the shared dashboard sidebar. */
 export const farmerNav: NavItem[] = [
-  { label: "Dashboard", href: "/farmer", icon: "LayoutDashboard" },
-  { label: "Post New Product", href: "/farmer/new-product", icon: "PackagePlus" },
-  { label: "My Listings", href: "/farmer/listings", icon: "ListChecks" },
-  { label: "Orders", href: "/farmer/orders", icon: "ClipboardList" },
-  { label: "Agreements", href: "/agreements", icon: "FileText" },
-  { label: "Wallet", href: "/wallet", icon: "CreditCard" },
-  { label: "Transactions", href: "/transactions", icon: "FileText" },
-  { label: "Reviews", href: "/reviews", icon: "Heart" },
-  { label: "Messages", href: "/chat", icon: "MessageSquare" },
-  { label: "Notifications", href: "/notifications", icon: "Bell" },
-  { label: "Profile", href: "/profile", icon: "User" },
-  { label: "Settings", href: "/settings", icon: "Settings" },
+  { label: "Dashboard", href: "/farmer", icon: "LayoutDashboard", group: "Overview" },
+  { label: "Post New Product", href: "/farmer/new-product", icon: "PackagePlus", group: "Marketplace" },
+  { label: "My Listings", href: "/farmer/listings", icon: "ListChecks", group: "Marketplace" },
+  { label: "Orders", href: "/farmer/orders", icon: "ClipboardList", group: "Marketplace" },
+  { label: "Agreements", href: "/agreements", icon: "FileText", group: "Marketplace" },
+  { label: "Wallet", href: "/wallet", icon: "CreditCard", group: "Finance" },
+  { label: "Transactions", href: "/transactions", icon: "FileText", group: "Finance" },
+  { label: "Reviews", href: "/reviews", icon: "Heart", group: "Communication" },
+  { label: "Messages", href: "/chat", icon: "MessageSquare", group: "Communication" },
+  { label: "Notifications", href: "/notifications", icon: "Bell", group: "Communication" },
+  { label: "Profile", href: "/profile", icon: "User", group: "Account" },
+  { label: "Settings", href: "/settings", icon: "Settings", group: "Account" },
 ];
 
 export const wholesalerNav: NavItem[] = [
-  { label: "Dashboard", href: "/wholesaler", icon: "LayoutDashboard" },
-  { label: "Browse Products", href: "/wholesaler/browse", icon: "ShoppingBag" },
-  { label: "Orders", href: "/wholesaler/orders", icon: "ClipboardList" },
-  { label: "My Listings", href: "/wholesaler/listings", icon: "ListChecks" },
-  { label: "Agreements", href: "/agreements", icon: "FileText" },
-  { label: "Wallet", href: "/wallet", icon: "CreditCard" },
-  { label: "Transactions", href: "/transactions", icon: "FileText" },
-  { label: "Reviews", href: "/reviews", icon: "Heart" },
-  { label: "Messages", href: "/chat", icon: "MessageSquare" },
-  { label: "Notifications", href: "/notifications", icon: "Bell" },
-  { label: "Profile", href: "/profile", icon: "User" },
-  { label: "Settings", href: "/settings", icon: "Settings" },
+  { label: "Dashboard", href: "/wholesaler", icon: "LayoutDashboard", group: "Overview" },
+  { label: "Browse Products", href: "/wholesaler/browse", icon: "ShoppingBag", group: "Marketplace" },
+  { label: "Orders", href: "/wholesaler/orders", icon: "ClipboardList", group: "Marketplace" },
+  { label: "My Listings", href: "/wholesaler/listings", icon: "ListChecks", group: "Marketplace" },
+  { label: "Agreements", href: "/agreements", icon: "FileText", group: "Marketplace" },
+  { label: "Wallet", href: "/wallet", icon: "CreditCard", group: "Finance" },
+  { label: "Transactions", href: "/transactions", icon: "FileText", group: "Finance" },
+  { label: "Reviews", href: "/reviews", icon: "Heart", group: "Communication" },
+  { label: "Messages", href: "/chat", icon: "MessageSquare", group: "Communication" },
+  { label: "Notifications", href: "/notifications", icon: "Bell", group: "Communication" },
+  { label: "Profile", href: "/profile", icon: "User", group: "Account" },
+  { label: "Settings", href: "/settings", icon: "Settings", group: "Account" },
 ];
 
 export const retailerNav: NavItem[] = [
-  { label: "Dashboard", href: "/retailer", icon: "LayoutDashboard" },
-  { label: "Browse Products", href: "/retailer/browse", icon: "ShoppingBag" },
-  { label: "Orders", href: "/retailer/orders", icon: "ClipboardList" },
-  { label: "Agreements", href: "/agreements", icon: "FileText" },
-  { label: "Wallet", href: "/wallet", icon: "CreditCard" },
-  { label: "Transactions", href: "/transactions", icon: "FileText" },
-  { label: "Reviews", href: "/reviews", icon: "Heart" },
-  { label: "Messages", href: "/chat", icon: "MessageSquare" },
-  { label: "Notifications", href: "/notifications", icon: "Bell" },
-  { label: "Profile", href: "/profile", icon: "User" },
-  { label: "Settings", href: "/settings", icon: "Settings" },
+  { label: "Dashboard", href: "/retailer", icon: "LayoutDashboard", group: "Overview" },
+  { label: "Browse Products", href: "/retailer/browse", icon: "ShoppingBag", group: "Marketplace" },
+  { label: "Orders", href: "/retailer/orders", icon: "ClipboardList", group: "Marketplace" },
+  { label: "Agreements", href: "/agreements", icon: "FileText", group: "Marketplace" },
+  { label: "Wallet", href: "/wallet", icon: "CreditCard", group: "Finance" },
+  { label: "Transactions", href: "/transactions", icon: "FileText", group: "Finance" },
+  { label: "Reviews", href: "/reviews", icon: "Heart", group: "Communication" },
+  { label: "Messages", href: "/chat", icon: "MessageSquare", group: "Communication" },
+  { label: "Notifications", href: "/notifications", icon: "Bell", group: "Communication" },
+  { label: "Profile", href: "/profile", icon: "User", group: "Account" },
+  { label: "Settings", href: "/settings", icon: "Settings", group: "Account" },
 ];
 
-/** Top-nav links for the three staff roles (Fig 4.9 / 4.10). */
+/** User Admin navigation uses the existing role-protected admin routes. */
 export const adminNav: NavItem[] = [
-  { label: "Dashboard", href: "/admin", icon: "Gauge" },
-  { label: "Pending Approvals", href: "/admin/approvals", icon: "UserCheck" },
-  { label: "Users", href: "/admin/users", icon: "Users" },
-  { label: "Listings", href: "/admin/listings", icon: "Tag" },
-  { label: "Messages", href: "/chat", icon: "MessageSquare" },
+  { label: "Dashboard", href: "/admin", icon: "Gauge", group: "Overview" },
+  { label: "Pending Approvals", href: "/admin/approvals", icon: "UserCheck", group: "User Administration" },
+  { label: "Users", href: "/admin/users", icon: "Users", group: "User Administration" },
+  { label: "Listings", href: "/admin/listings", icon: "Tag", group: "Marketplace" },
+  { label: "Messages", href: "/chat", icon: "MessageSquare", group: "Communication" },
+  { label: "Notifications", href: "/notifications", icon: "Bell", group: "Communication" },
+  { label: "Profile", href: "/profile", icon: "User", group: "Account" },
+  { label: "Settings", href: "/settings", icon: "Settings", group: "Account" },
 ];
 
 export const finManagerNav: NavItem[] = [
-  { label: "Dashboard", href: "/financial-manager", icon: "Gauge" },
-  { label: "Payments", href: "/financial-manager/payments", icon: "CreditCard" },
-  { label: "Bank Accounts", href: "/financial-manager/bank-accounts", icon: "Landmark" },
-  { label: "Reports", href: "/financial-manager/reports", icon: "BarChart3" },
-  { label: "Messages", href: "/chat", icon: "MessageSquare" },
+  { label: "Dashboard", href: "/financial-manager", icon: "Gauge", group: "Overview" },
+  { label: "Payments", href: "/financial-manager/payments", icon: "CreditCard", group: "Operations" },
+  { label: "Deposits", href: "/financial-manager/deposits", icon: "CreditCard", group: "Operations" },
+  { label: "Payouts", href: "/financial-manager/payouts", icon: "CreditCard", group: "Operations" },
+  { label: "Wallet Activity", href: "/transactions", icon: "CreditCard", group: "Operations" },
+  { label: "Bank Accounts", href: "/financial-manager/bank-accounts", icon: "Landmark", group: "Operations" },
+  { label: "Reports & Analytics", href: "/financial-manager/reports", icon: "BarChart3", group: "Reporting" },
+  { label: "Messages", href: "/chat", icon: "MessageSquare", group: "Communication" },
+  { label: "Notifications", href: "/notifications", icon: "Bell", group: "Communication" },
+  { label: "Profile", href: "/profile", icon: "User", group: "Account" },
+  { label: "Settings", href: "/settings", icon: "Settings", group: "Account" },
 ];
 
 export const superAdminNav: NavItem[] = [
-  { label: "Dashboard", href: "/super-admin", icon: "Gauge" },
-  { label: "Users", href: "/super-admin/users", icon: "Users" },
-  { label: "Listings", href: "/super-admin/listings", icon: "Tag" },
-  { label: "Payments", href: "/super-admin/payments", icon: "CreditCard" },
-  { label: "Reports", href: "/super-admin/reports", icon: "BarChart3" },
-  { label: "Audit Logs", href: "/super-admin/audit", icon: "FileText" },
-  { label: "Settings", href: "/super-admin/settings", icon: "Settings" },
+  { label: "Dashboard", href: "/super-admin", icon: "Gauge", group: "Overview" },
+  { label: "Users", href: "/super-admin/users", icon: "Users", group: "Administration" },
+  { label: "Listings", href: "/super-admin/listings", icon: "Tag", group: "Marketplace" },
+  { label: "Payments", href: "/super-admin/payments", icon: "CreditCard", group: "Marketplace" },
+  { label: "Reports", href: "/super-admin/reports", icon: "BarChart3", group: "Reporting" },
+  { label: "Audit Logs", href: "/super-admin/audit", icon: "FileText", group: "Reporting" },
+  { label: "Messages", href: "/chat", icon: "MessageSquare", group: "Communication" },
+  { label: "Notifications", href: "/notifications", icon: "Bell", group: "Communication" },
+  { label: "Profile", href: "/profile", icon: "User", group: "Account" },
+  { label: "Settings", href: "/super-admin/settings", icon: "Settings", group: "Account" },
 ];
 
 export function getNavItems(role: UserRole): NavItem[] {
@@ -344,7 +357,14 @@ export function getNavItems(role: UserRole): NavItem[] {
   }
 }
 
-/** Commercial roles get the green sidebar; staff roles get a top nav. */
+/** All authenticated dashboard roles use the shared sidebar shell. */
 export function usesSidebar(role: UserRole): boolean {
-  return ["FARMER", "WHOLESALER", "RETAILER"].includes(role);
+  return [
+    "FARMER",
+    "WHOLESALER",
+    "RETAILER",
+    "USER_ADMIN",
+    "FINANCIAL_MANAGER",
+    "SUPER_ADMIN",
+  ].includes(role);
 }

@@ -655,6 +655,15 @@ export interface WalletPayoutRequest {
   review_notes: string;
 }
 
+export interface WalletRequestQuery {
+  page?: number;
+  status?: string;
+  role?: UserRole | "ALL";
+  date_from?: string;
+  date_to?: string;
+  search?: string;
+}
+
 export interface WalletTransaction {
   id: string;
   transaction_type: string;
@@ -822,6 +831,36 @@ export interface PaymentSummaryData {
   tabs: Record<PaymentStatus, number>;
 }
 
+export interface FinancialOperationsSummary {
+  success: true;
+  wallets: {
+    count: number;
+    available_balance: string;
+    held_balance: string;
+    by_role: Record<
+      string,
+      { count: number; available_balance: string; held_balance: string }
+    >;
+  };
+  funding: {
+    by_status: Record<string, { count: number; amount: string }>;
+    awaiting_review_count: number;
+    awaiting_review_amount: string;
+  };
+  payouts: {
+    by_status: Record<string, { count: number; amount: string }>;
+    pending_count: number;
+    pending_amount: string;
+    paid_count: number;
+    paid_amount: string;
+  };
+  beneficiaries: {
+    count: number;
+    requires_review_count: number;
+  };
+  escrow: Record<string, { count: number; amount: string }>;
+}
+
 // ---------------------------------------------------------------------------
 // Reports
 // ---------------------------------------------------------------------------
@@ -857,6 +896,25 @@ export interface FinancialReportQuery {
   date_to?: string;
   user_id?: string;
   search?: string;
+}
+
+export interface WalletActivityReport {
+  period: { date_from: string; date_to: string };
+  summary: {
+    deposits: { amount: string; count: number };
+    payouts: { amount: string; count: number };
+  };
+  status_breakdown: {
+    deposits: Record<string, { amount: string; count: number }>;
+    payouts: Record<string, { amount: string; count: number }>;
+  };
+  daily: {
+    date: string;
+    deposits: string;
+    payouts: string;
+    deposit_count: number;
+    payout_count: number;
+  }[];
 }
 
 export interface TransactionVolume {

@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Eye, EyeOff, Landmark } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Eye, EyeOff, Landmark, MessageSquare } from "lucide-react";
 import {
   Button,
   Card,
@@ -12,11 +13,12 @@ import {
   Select,
   StatusPill,
 } from "@/components/ui";
-import { walletApi } from "@/lib/api/client";
+import { chatApi, walletApi } from "@/lib/api/client";
 import { formatDateTime, formatEtb } from "@/lib/format";
 import type { BankAccount, BankAccountFullDetails } from "@/lib/types";
 
 export function FinancialBankAccounts() {
+  const router = useRouter();
   const [accounts, setAccounts] = useState<BankAccount[]>([]);
   const [count, setCount] = useState(0);
   const [search, setSearch] = useState("");
@@ -85,6 +87,19 @@ export function FinancialBankAccounts() {
     }
   }
 
+  async function messageAccountHolder(account: BankAccount) {
+    setBusyId(account.id);
+    setError("");
+    try {
+      const result = await chatApi.openChannel(account.user_id);
+      router.push(`/chat?channel=${encodeURIComponent(result.channel.id)}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not open a conversation.");
+    } finally {
+      setBusyId("");
+    }
+  }
+
   return (
     <section className="space-y-5">
       <div>
@@ -139,6 +154,18 @@ export function FinancialBankAccounts() {
                   </div>
                   <div className="flex items-center gap-2">
                     <StatusPill value={account.status} />
+                    {account.user_role !== "RETAILER" && (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={!!busyId}
+                        loading={busyId === account.id}
+                        icon={<MessageSquare className="h-4 w-4" />}
+                        onClick={() => void messageAccountHolder(account)}
+                      >
+                        Message
+                      </Button>
+                    )}
                     {account.status === "NOT_VERIFIED" && (
                       <Button
                         size="sm"

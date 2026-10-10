@@ -1,10 +1,23 @@
 """Role dashboard aggregation endpoints (doc 5.1.5, FR-F-06, FR-W-07, FR-R-05, FR-SA-05)."""
+from decimal import Decimal
+
 from django.db.models import Count, Q, Sum
 from django.utils import timezone
 
 from chat.models import Message
 from notifications.models import Notification
-from payments.models import Order, OrderStatus, PaymentRecord, PaymentStatus
+from payments.models import (
+    BankAccount,
+    FundingStatus,
+    Order,
+    OrderStatus,
+    PaymentRecord,
+    PaymentStatus,
+    PayoutStatus,
+    Wallet,
+    WalletFundingRequest,
+    WalletPayoutRequest,
+)
 from products.geo import annotate_distance_km
 from products.models import Product, ProductStatus, ProductType
 from rest_framework.response import Response
@@ -350,5 +363,116 @@ class PaymentSummaryView(APIView):
                         status=PaymentStatus.DISPUTED
                     ).count(),
                 },
+            }
+        )
+
+
+@extend_schema(responses=OpenApiTypes.OBJECT)
+class FinancialOperationsSummaryView(APIView):
+    """Read-only wallet and payout aggregates for the Financial Manager."""
+
+    permission_classes = [IsFinancialManager]
+
+    @staticmethod
+    def _money(value):
+        amount = value if value is not None else Decimal("0.00")
+        return str(amount.quantize(Decimal("0.01")))
+
+    @classmethod
+    def _by_status(cls, queryset):
+        return {
+            row["status"]: {
+                "count": row["count"],
+                "amount": cls._money(row["amount"]),
+            }
+            for row in queryset.values("status").annotate(
+                count=Count("id"), amount=Sum("amount")
+            )
+        }
+
+    def get(self, request):
+        participant_roles = (Role.FARMER, Role.WHOLESALER, Role.RETAILER)
+        wallets = Wallet.objects.filter(user__role__in=participant_roles)
+        wallet_totals = wallets.aggregate(
+            count=Count("id"),
+            available=Sum("available_balance"),
+            held=Sum("held_balance"),
+        )
+        wallet_by_role = {
+            row["user__role"]: {
+                "count": row["count"],
+                "available_balance": self._money(row["available"]),
+                "held_balance": self._money(row["held"]),
+            }
+            for row in wallets.values("user__role").annotate(
+                count=Count("id"),
+                available=Sum("available_balance"),
+                held=Sum("held_balance"),
+            )
+        }
+
+        funding = WalletFundingRequest.objects.filter(
+            wallet__user__role__in=participant_roles
+        )
+        funding_review = funding.filter(
+            status__in=(FundingStatus.PENDING, FundingStatus.AWAITING_APPROVAL)
+        ).aggregate(count=Count("id"), amount=Sum("amount"))
+
+        payouts = WalletPayoutRequest.objects.filter(
+            wallet__user__role__in=participant_roles
+        )
+        pending_payouts = payouts.filter(status=PayoutStatus.PENDING).aggregate(
+            count=Count("id"), amount=Sum("amount")
+        )
+        paid_payouts = payouts.filter(status=PayoutStatus.PAID).aggregate(
+            count=Count("id"), amount=Sum("amount")
+        )
+
+        escrow_statuses = (
+            OrderStatus.AWAITING_PAYMENT_RELEASE,
+            OrderStatus.DISPUTED,
+        )
+        escrow = Order.objects.filter(status__in=escrow_statuses).values(
+            "status"
+        ).annotate(count=Count("id"), amount=Sum("total_amount"))
+        escrow_by_status = {
+            row["status"]: {
+                "count": row["count"],
+                "amount": self._money(row["amount"]),
+            }
+            for row in escrow
+        }
+
+        return Response(
+            {
+                "success": True,
+                "wallets": {
+                    "count": wallet_totals["count"],
+                    "available_balance": self._money(wallet_totals["available"]),
+                    "held_balance": self._money(wallet_totals["held"]),
+                    "by_role": wallet_by_role,
+                },
+                "funding": {
+                    "by_status": self._by_status(funding),
+                    "awaiting_review_count": funding_review["count"],
+                    "awaiting_review_amount": self._money(funding_review["amount"]),
+                },
+                "payouts": {
+                    "by_status": self._by_status(payouts),
+                    "pending_count": pending_payouts["count"],
+                    "pending_amount": self._money(pending_payouts["amount"]),
+                    "paid_count": paid_payouts["count"],
+                    "paid_amount": self._money(paid_payouts["amount"]),
+                },
+                "beneficiaries": {
+                    "count": BankAccount.objects.filter(
+                        user__role__in=participant_roles
+                    ).count(),
+                    "requires_review_count": BankAccount.objects.filter(
+                        user__role__in=participant_roles,
+                        status="REQUIRES_REVIEW",
+                    ).count(),
+                },
+                "escrow": escrow_by_status,
             }
         )

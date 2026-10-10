@@ -23,6 +23,7 @@ import type {
   FarmerDashboardData,
   FinancialReport,
   FinancialReportQuery,
+  FinancialOperationsSummary,
   LoginResponse,
   LoginUser,
   MeResponse,
@@ -53,6 +54,8 @@ import type {
   Wallet,
   WalletFundingRequest,
   WalletPayoutRequest,
+  WalletRequestQuery,
+  WalletActivityReport,
   WalletTransaction,
   WholesalerDashboardData,
   WithResource,
@@ -567,7 +570,8 @@ export const walletApi = {
     date_from?: string;
     date_to?: string;
   }) => get<Paginated<WalletTransaction>>("/wallet/transactions/", toParams(params)),
-  funding: () => get<Paginated<WalletFundingRequest>>("/wallet/funding/"),
+  funding: (params?: WalletRequestQuery) =>
+    get<Paginated<WalletFundingRequest>>("/wallet/funding/", toParams(params)),
   requestFunding: (data: {
     amount: string;
     payment_method: string;
@@ -586,7 +590,8 @@ export const walletApi = {
       `/wallet/funding/${id}/review/`,
       { approve, notes }
     ),
-  payouts: () => get<Paginated<WalletPayoutRequest>>("/wallet/payouts/"),
+  payouts: (params?: WalletRequestQuery) =>
+    get<Paginated<WalletPayoutRequest>>("/wallet/payouts/", toParams(params)),
   requestPayout: (data: {
     amount: string;
     destination?: string;
@@ -713,6 +718,8 @@ export const dashboardApi = {
   retailer: () => get<RetailerDashboardData>("/dashboard/retailer/"),
   admin: () => get<AdminDashboardData>("/dashboard/admin/"),
   payments: () => get<PaymentSummaryData>("/dashboard/payments/"),
+  financialOperations: () =>
+    get<FinancialOperationsSummary>("/dashboard/financial-operations/"),
 };
 
 // ---------------------------------------------------------------------------
@@ -739,6 +746,36 @@ export const notificationsApi = {
 // ---------------------------------------------------------------------------
 
 export const reportsApi = {
+  walletActivity: (query?: Pick<FinancialReportQuery, "date_from" | "date_to">) =>
+    get<WalletActivityReport>("/dashboard/wallet-activity/", toParams(query)),
+
+  walletActivityExport: async (
+    query?: Pick<FinancialReportQuery, "date_from" | "date_to">
+  ): Promise<{ blob: Blob; filename: string }> => {
+    const res = await rawRequest(
+      `/dashboard/wallet-activity/export/${qs(toParams(query))}`
+    );
+    if (!res.ok) {
+      let payload: unknown = null;
+      try {
+        payload = await res.json();
+      } catch {
+        /* non-JSON error body */
+      }
+      throw new ApiRequestError(
+        extractErrorMessage(payload, `Export failed: ${res.status}`),
+        res.status,
+        payload
+      );
+    }
+    const disposition = res.headers.get("Content-Disposition") ?? "";
+    const match = /filename="?([^";]+)"?/.exec(disposition);
+    return {
+      blob: await res.blob(),
+      filename: match?.[1] ?? "wallet-activity.csv",
+    };
+  },
+
   financialSummary: (query?: FinancialReportQuery) =>
     get<FinancialReport>("/reports/financial-summary/", toParams(query)),
 

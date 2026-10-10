@@ -5,6 +5,7 @@ from django.db import transaction
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from rest_framework import generics, mixins, viewsets
@@ -29,6 +30,7 @@ from .models import (
     OrderPaymentStatus,
     OrderStatus,
     PayoutBank,
+    PayoutStatus,
     PaymentRecord,
     PaymentStatus,
     Review,
@@ -75,6 +77,51 @@ def _generate_order_reference():
         if not Order.objects.filter(reference=reference).exists():
             return reference
     return f"#ORD{secrets.token_hex(6).upper()}"
+
+
+def _filter_financial_request_queryset(queryset, request, statuses, *, payout=False):
+    params = request.query_params
+    status = params.get("status", "").strip()
+    valid_statuses = {value for value, _ in statuses}
+    if status and status != "ALL":
+        if status not in valid_statuses:
+            raise ValidationError({"status": "Choose a valid request status."})
+        queryset = queryset.filter(status=status)
+
+    if request.user.role in (Role.FINANCIAL_MANAGER, Role.SUPER_ADMIN):
+        role = params.get("role", "").strip()
+        if role:
+            if role not in (Role.FARMER, Role.WHOLESALER, Role.RETAILER):
+                raise ValidationError({"role": "Choose a marketplace participant role."})
+            queryset = queryset.filter(wallet__user__role=role)
+
+    date_from = params.get("date_from", "").strip()
+    date_to = params.get("date_to", "").strip()
+    parsed_from = parse_date(date_from) if date_from else None
+    parsed_to = parse_date(date_to) if date_to else None
+    if date_from and parsed_from is None:
+        raise ValidationError({"date_from": "Use YYYY-MM-DD."})
+    if date_to and parsed_to is None:
+        raise ValidationError({"date_to": "Use YYYY-MM-DD."})
+    if parsed_from and parsed_to and parsed_from > parsed_to:
+        raise ValidationError({"date_to": "Must be on or after date_from."})
+    if parsed_from:
+        queryset = queryset.filter(submitted_at__date__gte=parsed_from)
+    if parsed_to:
+        queryset = queryset.filter(submitted_at__date__lte=parsed_to)
+
+    search = params.get("search", "").strip()
+    if search:
+        fields = (
+            Q(wallet__user__full_name__icontains=search)
+            | Q(external_reference__icontains=search)
+        )
+        if payout:
+            fields |= Q(destination__icontains=search)
+        else:
+            fields |= Q(payment_method__icontains=search)
+        queryset = queryset.filter(fields)
+    return queryset
 
 
 class IsWalletParticipant(IsAuthenticatedRole):
@@ -586,9 +633,11 @@ class WalletFundingRequestListCreateView(generics.ListCreateAPIView):
 
     def get_queryset(self):
             queryset = WalletFundingRequest.objects.select_related("wallet__user")
-            if self.request.user.role in (Role.FINANCIAL_MANAGER, Role.SUPER_ADMIN):
-                return queryset
-            return queryset.filter(wallet__user=self.request.user)
+            if self.request.user.role not in (Role.FINANCIAL_MANAGER, Role.SUPER_ADMIN):
+                queryset = queryset.filter(wallet__user=self.request.user)
+            return _filter_financial_request_queryset(
+                queryset, self.request, FundingStatus.choices
+            )
 
     def perform_create(self, serializer):
             if self.request.user.role not in (
@@ -980,10 +1029,14 @@ class WalletPayoutRequestListCreateView(generics.ListCreateAPIView):
     serializer_class = WalletPayoutRequestSerializer
 
     def get_queryset(self):
-            queryset = WalletPayoutRequest.objects.select_related("wallet__user")
-            if self.request.user.role in (Role.FINANCIAL_MANAGER, Role.SUPER_ADMIN):
-                return queryset
-            return queryset.filter(wallet__user=self.request.user)
+            queryset = WalletPayoutRequest.objects.select_related(
+                "wallet__user", "payout_account__bank"
+            )
+            if self.request.user.role not in (Role.FINANCIAL_MANAGER, Role.SUPER_ADMIN):
+                queryset = queryset.filter(wallet__user=self.request.user)
+            return _filter_financial_request_queryset(
+                queryset, self.request, PayoutStatus.choices, payout=True
+            )
 
     def create(self, request, *args, **kwargs):
             idempotency_key = (request.headers.get("Idempotency-Key") or "").strip()

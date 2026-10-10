@@ -5,7 +5,17 @@ import pytest
 
 from chat.models import ChatChannel, Message
 from notifications.models import Notification
-from payments.models import Order, OrderStatus, PaymentRecord, PaymentStatus
+from payments.models import (
+    FundingStatus,
+    Order,
+    OrderStatus,
+    PaymentRecord,
+    PaymentStatus,
+    PayoutStatus,
+    Wallet,
+    WalletFundingRequest,
+    WalletPayoutRequest,
+)
 from products.models import Product, ProductStatus, ProductType
 from users.models import AccountStatus, Role, User
 
@@ -203,6 +213,75 @@ def test_financial_manager_can_read_the_admin_dashboard(api, financial_manager, 
     stats = api.get("/api/v1/dashboard/admin/").data["stats"]
     assert stats["pending_payments"] == 1
     assert stats["verified_payments"] == 0
+
+
+def test_financial_operations_summary_aggregates_wallet_queues(
+    api, financial_manager, farmer, wholesaler
+):
+    farmer_wallet, _ = Wallet.objects.get_or_create(user=farmer)
+    farmer_wallet.available_balance = Decimal("125.50")
+    farmer_wallet.held_balance = Decimal("5.00")
+    farmer_wallet.save()
+    wholesaler_wallet, _ = Wallet.objects.get_or_create(user=wholesaler)
+    wholesaler_wallet.available_balance = Decimal("25.25")
+    wholesaler_wallet.held_balance = Decimal("2.50")
+    wholesaler_wallet.save()
+    WalletFundingRequest.objects.create(
+        wallet=farmer_wallet,
+        amount=Decimal("50.25"),
+        payment_method="Chapa",
+        external_reference="SUMMARY-FUND-1",
+        status=FundingStatus.AWAITING_APPROVAL,
+    )
+    WalletFundingRequest.objects.create(
+        wallet=farmer_wallet,
+        amount=Decimal("10.00"),
+        payment_method="Bank Transfer",
+        external_reference="SUMMARY-FUND-2",
+        status=FundingStatus.FAILED,
+    )
+    WalletPayoutRequest.objects.create(
+        wallet=farmer_wallet,
+        amount=Decimal("20.75"),
+        destination="registered account",
+        status=PayoutStatus.PENDING,
+    )
+
+    api.force_authenticate(user=financial_manager)
+    response = api.get("/api/v1/dashboard/financial-operations/")
+
+    assert response.status_code == 200
+    assert response.data["wallets"] == {
+        "count": 2,
+        "available_balance": "150.75",
+        "held_balance": "7.50",
+        "by_role": {
+            "FARMER": {
+                "count": 1,
+                "available_balance": "125.50",
+                "held_balance": "5.00",
+            },
+            "WHOLESALER": {
+                "count": 1,
+                "available_balance": "25.25",
+                "held_balance": "2.50",
+            },
+        },
+    }
+    assert response.data["funding"]["awaiting_review_count"] == 1
+    assert response.data["funding"]["awaiting_review_amount"] == "50.25"
+    assert response.data["funding"]["by_status"]["FAILED"]["count"] == 1
+    assert response.data["payouts"]["pending_count"] == 1
+    assert response.data["payouts"]["pending_amount"] == "20.75"
+    assert response.data["beneficiaries"] == {
+        "count": 0,
+        "requires_review_count": 0,
+    }
+
+
+def test_financial_operations_summary_is_financial_manager_only(api, user_admin):
+    api.force_authenticate(user=user_admin)
+    assert api.get("/api/v1/dashboard/financial-operations/").status_code == 403
 
 
 def test_dashboard_admin_is_closed_to_regular_users(api, farmer):
