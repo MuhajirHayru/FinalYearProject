@@ -11,6 +11,7 @@ import {
   Field,
   Input,
   PageLoader,
+  Select,
   StatusPill,
   Textarea,
 } from "@/components/ui";
@@ -25,6 +26,7 @@ const ROLES: UserRole[] = [
   "FARMER",
   "WHOLESALER",
   "RETAILER",
+  "USER_ADMIN",
   "FINANCIAL_MANAGER",
   "SUPER_ADMIN",
 ];
@@ -52,6 +54,9 @@ export default function OrderDetailPage({
   const [error, setError] = useState("");
   const [reason, setReason] = useState("");
   const [settlementReference, setSettlementReference] = useState("");
+  const [disclosureRecipient, setDisclosureRecipient] = useState("");
+  const [disclosureFields, setDisclosureFields] = useState<string[]>(["phone"]);
+  const [disclosureReason, setDisclosureReason] = useState("");
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState("");
   const [notice, setNotice] = useState("");
@@ -108,12 +113,16 @@ export default function OrderDetailPage({
   const isBuyer = user.id === buyerId;
   const isSeller = user.id === sellerId;
   const isFinancial = user.role === "FINANCIAL_MANAGER" || user.role === "SUPER_ADMIN";
+  const canAuthorizeDisclosure =
+    isFinancial || user.role === "USER_ADMIN";
   const backPath =
     user.role === "FARMER"
       ? "/farmer/orders"
       : user.role === "RETAILER"
         ? "/retailer/orders"
-        : "/wholesaler/orders";
+        : user.role === "USER_ADMIN"
+          ? "/admin"
+          : "/wholesaler/orders";
   const canRate = (isBuyer || isSeller) && order.status === "Completed";
 
   async function submitReview() {
@@ -128,6 +137,24 @@ export default function OrderDetailPage({
       setError(err instanceof Error ? err.message : "Could not submit the review.");
     } finally {
       setBusy(false);
+    }
+
+  }
+
+  function toggleDisclosureField(field: string) {
+    setDisclosureFields((selected) =>
+      selected.includes(field)
+        ? selected.filter((item) => item !== field)
+        : [...selected, field]
+    );
+  }
+
+  function changeDisclosureRecipient(recipientId: string) {
+    setDisclosureRecipient(recipientId);
+    if (recipientId !== sellerId) {
+      setDisclosureFields((selected) =>
+        selected.filter((field) => field !== "delivery_information")
+      );
     }
   }
 
@@ -208,6 +235,44 @@ export default function OrderDetailPage({
         </div>
       </Card>
 
+      {order.counterparty_contact && (
+        <Card>
+          <div className="space-y-2 p-5">
+            <h3 className="font-semibold text-gray-900">Authorized contact details</h3>
+            <p className="text-sm text-gray-700">
+              {order.counterparty_contact.full_name}
+            </p>
+            {order.counterparty_contact.phone && (
+              <p className="text-sm text-gray-700">
+                Phone: {order.counterparty_contact.phone}
+              </p>
+            )}
+            {order.counterparty_contact.email && (
+              <p className="text-sm text-gray-700">
+                Email: {order.counterparty_contact.email}
+              </p>
+            )}
+            {order.counterparty_contact.address && (
+              <p className="text-sm text-gray-700">
+                Address: {order.counterparty_contact.address}
+              </p>
+            )}
+            {order.counterparty_contact.precise_location && (
+              <p className="text-sm text-gray-700">
+                Precise location:{" "}
+                {[
+                  order.counterparty_contact.precise_location.address,
+                  order.counterparty_contact.precise_location.latitude,
+                  order.counterparty_contact.precise_location.longitude,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
+            )}
+          </div>
+        </Card>
+      )}
+
       {order.agreement_status && (
         <Card>
           <div className="p-5">
@@ -267,6 +332,83 @@ export default function OrderDetailPage({
         <Card>
           <div className="space-y-4 p-5">
             <h3 className="font-semibold text-gray-900">Available actions</h3>
+            {canAuthorizeDisclosure &&
+              !["Pending seller approval", "Rejected", "Cancelled", "Disputed"].includes(
+                order.status
+              ) && (
+                <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50 p-4">
+                  <h4 className="font-semibold text-gray-900">
+                    Authorize contact disclosure
+                  </h4>
+                  <p className="text-sm text-gray-600">
+                    Select only the information needed for this order. The decision
+                    will be recorded in the audit history.
+                  </p>
+                  <Field label="Recipient" htmlFor="disclosure-recipient">
+                    <Select
+                      id="disclosure-recipient"
+                      value={disclosureRecipient}
+                      onChange={(event) =>
+                        changeDisclosureRecipient(event.target.value)
+                      }
+                    >
+                      <option value="">Choose a participant</option>
+                      <option value={sellerId}>Seller — {order.seller_name}</option>
+                      <option value={buyerId}>Buyer — {order.buyer_name}</option>
+                    </Select>
+                  </Field>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {[
+                      ["phone", "Phone number"],
+                      ["email", "Email address"],
+                      ["address", "Business address"],
+                      ["precise_location", "Precise location"],
+                      ...(disclosureRecipient === sellerId
+                        ? [["delivery_information", "Buyer delivery instructions"]]
+                        : []),
+                    ].map(([value, label]) => (
+                      <label key={value} className="flex items-center gap-2 text-sm text-gray-700">
+                        <input
+                          type="checkbox"
+                          checked={disclosureFields.includes(value)}
+                          onChange={() => toggleDisclosureField(value)}
+                        />
+                        {label}
+                      </label>
+                    ))}
+                  </div>
+                  <Field label="Reason" htmlFor="disclosure-reason">
+                    <Textarea
+                      id="disclosure-reason"
+                      value={disclosureReason}
+                      onChange={(event) => setDisclosureReason(event.target.value)}
+                      placeholder="Explain why this information is needed for the transaction"
+                    />
+                  </Field>
+                  <Button
+                    loading={busy}
+                    disabled={
+                      !disclosureRecipient ||
+                      disclosureFields.length === 0 ||
+                      !disclosureReason.trim()
+                    }
+                    onClick={() =>
+                      void run(
+                        () =>
+                          ordersApi.discloseContact(
+                            order.id,
+                            disclosureRecipient,
+                            disclosureFields,
+                            disclosureReason.trim()
+                          ),
+                        "Selected order information was authorized and recorded."
+                      )
+                    }
+                  >
+                    Disclose selected information
+                  </Button>
+                </div>
+              )}
             {order.allowed_transitions.length > 0 && (
               <div className="flex flex-wrap gap-2">
                 {order.allowed_transitions.map((next) => (

@@ -9,6 +9,7 @@ import {
   CardHeader,
   ErrorBanner,
   Field,
+  Input,
   PageLoader,
   SuccessBanner,
   Textarea,
@@ -29,9 +30,14 @@ export default function SuperAdminSettingsPage() {
     require_approval: true,
     maintenance_mode: false,
     announcement: "",
+    max_failed_login_attempts: 3,
+    lockout_duration_minutes: 180,
+    text_messaging_enabled: true,
+    voice_messaging_enabled: true,
   });
 
   const [broadcast, setBroadcast] = useState("");
+  const [reason, setReason] = useState("");
 
   const load = useCallback(async () => {
     setError("");
@@ -43,7 +49,12 @@ export default function SuperAdminSettingsPage() {
         require_approval: res.settings.require_approval,
         maintenance_mode: res.settings.maintenance_mode,
         announcement: res.settings.announcement ?? "",
+        max_failed_login_attempts: res.settings.max_failed_login_attempts,
+        lockout_duration_minutes: res.settings.lockout_duration_minutes,
+        text_messaging_enabled: res.settings.text_messaging_enabled,
+        voice_messaging_enabled: res.settings.voice_messaging_enabled,
       });
+      setReason("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load settings.");
     } finally {
@@ -56,11 +67,31 @@ export default function SuperAdminSettingsPage() {
   }, [load]);
 
   async function save() {
+    const criticalChange = Boolean(
+      settings &&
+        (form.maintenance_mode !== settings.maintenance_mode ||
+          form.max_failed_login_attempts !== settings.max_failed_login_attempts ||
+          form.lockout_duration_minutes !== settings.lockout_duration_minutes ||
+          form.text_messaging_enabled !== settings.text_messaging_enabled ||
+          form.voice_messaging_enabled !== settings.voice_messaging_enabled)
+    );
+    if (
+      criticalChange &&
+      (!reason.trim() ||
+        !window.confirm(
+          "Apply these security or access policy changes? The change and reason will be recorded in the audit log."
+        ))
+    ) {
+      return;
+    }
     setBusy(true);
     setError("");
     setNotice("");
     try {
-      const res = await superAdminApi.updateSettings(form);
+      const res = await superAdminApi.updateSettings({
+        ...form,
+        ...(criticalChange ? { reason: reason.trim() } : {}),
+      });
       setSettings(res.settings);
       setNotice(
         `Saved. ${res.updated ? Object.keys(res.updated).length : 0} field(s) changed.`
@@ -102,8 +133,7 @@ export default function SuperAdminSettingsPage() {
       <div className="mb-6">
         <h2 className="text-lg font-bold text-gray-900">Platform Settings</h2>
         <p className="mt-1 text-sm text-gray-500">
-          Registration policy and the announcement banner shown to every signed-in
-          user.
+          Global registration, login security, messaging, and operational policies.
         </p>
       </div>
 
@@ -206,6 +236,123 @@ export default function SuperAdminSettingsPage() {
                   {settings.updated_by ? ` by ${settings.updated_by}` : ""}
                 </p>
               )}
+            </div>
+          </div>
+        </Card>
+
+        <Card>
+          <CardHeader
+            title="Login security and communication"
+            subtitle="Effective immediately for new login decisions and message sends"
+          />
+          <div className="space-y-5 p-5">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field
+                label="Failed password attempts before lockout"
+                htmlFor="max-failed-login-attempts"
+                hint="Between 1 and 20 consecutive failures. A successful password resets the counter."
+              >
+                <Input
+                  id="max-failed-login-attempts"
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={form.max_failed_login_attempts}
+                  onChange={(event) =>
+                    setForm({
+                      ...form,
+                      max_failed_login_attempts: Number(event.target.value),
+                    })
+                  }
+                />
+              </Field>
+              <Field
+                label="Lockout duration (minutes)"
+                htmlFor="lockout-duration"
+                hint="Between 1 and 10,080 minutes (7 days). Existing lockouts keep their original expiry."
+              >
+                <Input
+                  id="lockout-duration"
+                  type="number"
+                  min={1}
+                  max={10080}
+                  value={form.lockout_duration_minutes}
+                  onChange={(event) =>
+                    setForm({
+                      ...form,
+                      lockout_duration_minutes: Number(event.target.value),
+                    })
+                  }
+                />
+              </Field>
+            </div>
+
+            <label className="flex items-start gap-3">
+              <input
+                type="checkbox"
+                checked={form.text_messaging_enabled}
+                onChange={(event) =>
+                  setForm({ ...form, text_messaging_enabled: event.target.checked })
+                }
+                className="mt-0.5 h-4 w-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
+              />
+              <span>
+                <span className="block text-sm font-medium text-gray-900">
+                  Text messaging enabled
+                </span>
+                <span className="block text-xs text-gray-500">
+                  When disabled, new text messages are rejected over REST and WebSocket.
+                </span>
+              </span>
+            </label>
+            <label className="flex items-start gap-3">
+              <input
+                type="checkbox"
+                checked={form.voice_messaging_enabled}
+                onChange={(event) =>
+                  setForm({ ...form, voice_messaging_enabled: event.target.checked })
+                }
+                className="mt-0.5 h-4 w-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
+              />
+              <span>
+                <span className="block text-sm font-medium text-gray-900">
+                  Voice messaging enabled
+                </span>
+                <span className="block text-xs text-gray-500">
+                  When disabled, new voice recordings cannot be submitted.
+                </span>
+              </span>
+            </label>
+
+            <Field
+              label="Reason for security or access policy changes"
+              htmlFor="settings-reason"
+              hint="Required and included in the audit record when changing lockout, maintenance, or messaging policies."
+            >
+              <Textarea
+                id="settings-reason"
+                value={reason}
+                maxLength={500}
+                onChange={(event) => setReason(event.target.value)}
+                placeholder="Explain why this policy change is needed."
+              />
+            </Field>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                loading={busy}
+                icon={<Save className="h-4 w-4" />}
+                onClick={() => void save()}
+              >
+                Save policies
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={busy}
+                onClick={() => void load()}
+              >
+                Cancel changes
+              </Button>
             </div>
           </div>
         </Card>

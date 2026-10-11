@@ -8,7 +8,7 @@ MAX_PRODUCT_IMAGES = 8
 
 class ProductSerializer(serializers.ModelSerializer):
     owner_name = serializers.CharField(source="owner.full_name", read_only=True)
-    owner_location = serializers.CharField(source="owner.location", read_only=True)
+    owner_location = serializers.SerializerMethodField()
     owner_role = serializers.CharField(source="owner.get_role_display", read_only=True)
     owner_profile_photo = serializers.ImageField(
         source="owner.profile_photo", read_only=True, allow_null=True
@@ -17,12 +17,6 @@ class ProductSerializer(serializers.ModelSerializer):
         source="owner.financially_verified", read_only=True
     )
     owner_is_online = serializers.BooleanField(source="owner.is_online", read_only=True)
-    owner_latitude = serializers.DecimalField(
-        source="owner.latitude", max_digits=9, decimal_places=6, read_only=True
-    )
-    owner_longitude = serializers.DecimalField(
-        source="owner.longitude", max_digits=9, decimal_places=6, read_only=True
-    )
     status_display = serializers.CharField(source="get_status_display", read_only=True)
     category_display = serializers.CharField(source="get_category_display", read_only=True)
     unit_display = serializers.CharField(source="get_unit_of_measure_display", read_only=True)
@@ -32,6 +26,13 @@ class ProductSerializer(serializers.ModelSerializer):
     owner_average_rating = serializers.SerializerMethodField()
     owner_review_count = serializers.SerializerMethodField()
 
+    def get_owner_location(self, obj):
+        registration = getattr(obj.owner, "registration", None)
+        location = getattr(registration, "location", None)
+        while location and location.level not in ("REGION", "CITY"):
+            location = location.parent
+        return location.name if location else ""
+
     class Meta:
         model = Product
         fields = [
@@ -40,7 +41,6 @@ class ProductSerializer(serializers.ModelSerializer):
             "status", "status_display", "product_type", "owner", "owner_name",
             "owner_location", "owner_role", "owner_profile_photo",
             "owner_financially_verified", "owner_is_online",
-            "owner_latitude", "owner_longitude",
             "owner_average_rating", "owner_review_count",
             "images", "is_owner", "distance_km", "total_value",
             "created_at", "updated_at",

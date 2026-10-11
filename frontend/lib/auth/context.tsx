@@ -303,7 +303,11 @@ export const retailerNav: NavItem[] = [
 export const adminNav: NavItem[] = [
   { label: "Dashboard", href: "/admin", icon: "Gauge", group: "Overview" },
   { label: "Pending Approvals", href: "/admin/approvals", icon: "UserCheck", group: "User Administration" },
+  { label: "Registration Review", href: "/admin/registrations", icon: "FileCheck2", group: "User Administration" },
   { label: "Users", href: "/admin/users", icon: "Users", group: "User Administration" },
+  { label: "Staff Accounts", href: "/super-admin/users", icon: "Users", group: "User Administration" },
+  { label: "Staff Scopes", href: "/super-admin/scopes", icon: "Settings", group: "User Administration" },
+  { label: "Audit Logs", href: "/super-admin/audit", icon: "FileText", group: "User Administration" },
   { label: "Listings", href: "/admin/listings", icon: "Tag", group: "Marketplace" },
   { label: "Messages", href: "/chat", icon: "MessageSquare", group: "Communication" },
   { label: "Notifications", href: "/notifications", icon: "Bell", group: "Communication" },
@@ -315,7 +319,7 @@ export const finManagerNav: NavItem[] = [
   { label: "Dashboard", href: "/financial-manager", icon: "Gauge", group: "Overview" },
   { label: "Payments", href: "/financial-manager/payments", icon: "CreditCard", group: "Operations" },
   { label: "Deposits", href: "/financial-manager/deposits", icon: "CreditCard", group: "Operations" },
-  { label: "Payouts", href: "/financial-manager/payouts", icon: "CreditCard", group: "Operations" },
+  { label: "Payout Invoices", href: "/financial-manager/payouts", icon: "CreditCard", group: "Operations" },
   { label: "Wallet Activity", href: "/transactions", icon: "CreditCard", group: "Operations" },
   { label: "Bank Accounts", href: "/financial-manager/bank-accounts", icon: "Landmark", group: "Operations" },
   { label: "Reports & Analytics", href: "/financial-manager/reports", icon: "BarChart3", group: "Reporting" },
@@ -327,7 +331,9 @@ export const finManagerNav: NavItem[] = [
 
 export const superAdminNav: NavItem[] = [
   { label: "Dashboard", href: "/super-admin", icon: "Gauge", group: "Overview" },
+  { label: "Registration Review", href: "/admin/registrations", icon: "FileCheck2", group: "Administration" },
   { label: "Users", href: "/super-admin/users", icon: "Users", group: "Administration" },
+  { label: "Admin scopes", href: "/super-admin/scopes", icon: "Settings", group: "Administration" },
   { label: "Listings", href: "/super-admin/listings", icon: "Tag", group: "Marketplace" },
   { label: "Payments", href: "/super-admin/payments", icon: "CreditCard", group: "Marketplace" },
   { label: "Reports", href: "/super-admin/reports", icon: "BarChart3", group: "Reporting" },

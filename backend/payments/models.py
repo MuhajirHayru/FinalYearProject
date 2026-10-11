@@ -327,6 +327,35 @@ class BusinessAgreement(models.Model):
         ordering = ["-activated_at"]
 
 
+class OrderContactDisclosure(models.Model):
+    """Audited, recipient-specific authorization to view order contact details."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    order = models.ForeignKey(
+        Order, on_delete=models.PROTECT, related_name="contact_disclosures"
+    )
+    recipient = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="order_contact_disclosures",
+    )
+    authorized_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="authorized_order_contact_disclosures",
+    )
+    disclosed_fields = models.JSONField(default=list)
+    reason = models.CharField(max_length=500)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "order_contact_disclosures"
+        ordering = ["created_at"]
+        indexes = [
+            models.Index(fields=["order", "recipient", "created_at"]),
+        ]
+
+
 class Wallet(models.Model):
     """Internal ETB balance. Manual transfers require staff verification."""
 
@@ -574,7 +603,7 @@ class Review(models.Model):
                 name="unique_order_participant_review",
             ),
             models.CheckConstraint(
-                condition=models.Q(rating__gte=1) & models.Q(rating__lte=5),
+                check=models.Q(rating__gte=1) & models.Q(rating__lte=5),
                 name="review_rating_1_to_5",
             ),
         ]

@@ -6,9 +6,9 @@ import { useSearchParams } from "next/navigation";
 import { Button, Card, CardHeader, EmptyState, ErrorBanner, Field, Input, Select, StatusPill } from "@/components/ui";
 import { ordersApi, walletApi } from "@/lib/api/client";
 import { formatDateTime, formatEtb } from "@/lib/format";
-import type { Order, WalletFundingRequest, WalletPayoutRequest, WalletRequestQuery } from "@/lib/types";
+import type { Order, WalletFundingRequest, WalletRequestQuery } from "@/lib/types";
 
-type QueueTab = "funding" | "payouts" | "escrow";
+type QueueTab = "funding" | "escrow";
 
 interface FinancialWorkflowQueueProps {
   initialTab?: QueueTab;
@@ -24,14 +24,12 @@ export function FinancialWorkflowQueue({
   const [tab, setTab] = useState<QueueTab>(
     initialTab
       ? initialTab
-      : initial === "funding" || initial === "payouts" || initial === "escrow"
+      : initial === "funding" || initial === "escrow"
       ? initial
       : "funding"
   );
   const [funding, setFunding] = useState<WalletFundingRequest[]>([]);
-  const [payouts, setPayouts] = useState<WalletPayoutRequest[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
-  const [references, setReferences] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [busyId, setBusyId] = useState("");
   const [loading, setLoading] = useState(true);
@@ -44,7 +42,6 @@ export function FinancialWorkflowQueue({
   const [appliedFilters, setAppliedFilters] = useState<WalletRequestQuery>({});
   const [page, setPage] = useState(1);
   const [fundingTotal, setFundingTotal] = useState(0);
-  const [payoutTotal, setPayoutTotal] = useState(0);
   const [hasPrevious, setHasPrevious] = useState(false);
   const [hasNext, setHasNext] = useState(false);
 
@@ -53,26 +50,22 @@ export function FinancialWorkflowQueue({
     setLoading(true);
     try {
       const query = { ...appliedFilters, page };
-      const [fundingData, payoutData, releaseData, disputeData] = await Promise.all([
+      const [fundingData, releaseData, disputeData] = await Promise.all([
         walletApi.funding(query),
-        walletApi.payouts(query),
         ordersApi.list({ status: "Awaiting payment release" }),
         ordersApi.list({ status: "Disputed" }),
       ]);
       setFunding(fundingData.results);
-      setPayouts(payoutData.results);
       setFundingTotal(fundingData.count);
-      setPayoutTotal(payoutData.count);
-      const activePage = tab === "payouts" ? payoutData : fundingData;
-      setHasPrevious(!!activePage.previous);
-      setHasNext(!!activePage.next);
+      setHasPrevious(!!fundingData.previous);
+      setHasNext(!!fundingData.next);
       setOrders([...releaseData.results, ...disputeData.results]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load finance review requests.");
     } finally {
       setLoading(false);
     }
-  }, [appliedFilters, page, tab]);
+  }, [appliedFilters, page]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -109,26 +102,11 @@ export function FinancialWorkflowQueue({
     }
   }
 
-  async function reviewPayout(id: string, approve: boolean) {
-    setBusyId(id);
-    setError("");
-    setNotice("");
-    try {
-      await walletApi.reviewPayout(id, approve, references[id] || "", notes[id] || "");
-      setNotice(`Payout request ${approve ? "marked as paid" : "rejected"}.`);
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not review payout request.");
-    } finally {
-      setBusyId("");
-    }
-  }
-
   return (
     <section className="mt-8 space-y-4">
       <div>
         <h2 className="text-lg font-bold text-gray-900">
-          {tab === "funding" ? "Deposits" : tab === "payouts" ? "Payouts" : "Wallet and escrow verification"}
+          {tab === "funding" ? "Deposits" : "Wallet and escrow verification"}
         </h2>
         <p className="mt-1 text-sm text-gray-500">
           {tab === "escrow"
@@ -138,9 +116,9 @@ export function FinancialWorkflowQueue({
       </div>
       {showTabs && (
         <div className="flex flex-wrap gap-2" role="tablist" aria-label="Finance review queues">
-          {(["funding", "payouts", "escrow"] as QueueTab[]).map((item) => (
+          {(["funding", "escrow"] as QueueTab[]).map((item) => (
             <Button key={item} role="tab" aria-selected={tab === item} variant={tab === item ? "primary" : "secondary"} onClick={() => { setTab(item); setPage(1); setFilters((value) => ({ ...value, status: "ALL" })); setAppliedFilters((value) => ({ ...value, status: undefined })); }}>
-              {item === "funding" ? `Funding (${fundingTotal})` : item === "payouts" ? `Payouts (${payoutTotal})` : `Escrow (${orders.length})`}
+              {item === "funding" ? `Funding (${fundingTotal})` : `Escrow (${orders.length})`}
             </Button>
           ))}
         </div>
@@ -156,10 +134,7 @@ export function FinancialWorkflowQueue({
             <Field label="Status" htmlFor="finance-status">
               <Select id="finance-status" value={filters.status || "ALL"} onChange={(event) => setFilters((value) => ({ ...value, status: event.target.value }))}>
                 <option value="ALL">All statuses</option>
-                {(tab === "funding"
-                  ? ["PENDING", "AWAITING_PAYMENT", "PAYMENT_VERIFICATION_PENDING", "AWAITING_APPROVAL", "VERIFIED", "APPROVED", "REJECTED", "FAILED"]
-                  : ["PENDING", "PAID", "REJECTED"]
-                ).map((status) => <option key={status} value={status}>{status.replaceAll("_", " ")}</option>)}
+                {["PENDING", "AWAITING_PAYMENT", "PAYMENT_VERIFICATION_PENDING", "AWAITING_APPROVAL", "VERIFIED", "APPROVED", "REJECTED", "FAILED"].map((status) => <option key={status} value={status}>{status.replaceAll("_", " ")}</option>)}
               </Select>
             </Field>
             <Field label="Participant role" htmlFor="finance-role">
@@ -197,26 +172,14 @@ export function FinancialWorkflowQueue({
               </div>
             </Card>
           )) : <Card><EmptyState title="No funding requests match these filters" /></Card>)}
-          {tab === "payouts" && (payouts.length ? payouts.map((request) => (
-            <Card key={request.id}>
-              <div className="space-y-3 p-5">
-                <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-semibold text-gray-900">{request.wallet_owner} · {formatEtb(request.amount)}</p><p className="mt-1 text-sm text-gray-600">{request.payout_account ? "Registered payout account — details remain masked in this queue" : "Manual destination — details withheld in this queue"}</p><p className="mt-1 text-xs text-gray-500">{formatDateTime(request.submitted_at)}</p>{request.reviewed_at && <p className="mt-1 text-xs text-gray-500">Reviewed · {formatDateTime(request.reviewed_at)}{request.external_reference ? ` · ${request.external_reference}` : ""}{request.review_notes ? ` · ${request.review_notes}` : ""}</p>}</div><StatusPill value={request.status} /></div>
-                {request.status === "PENDING" && <>
-                  <Field label="Verified external transfer reference" htmlFor={`payout-ref-${request.id}`}><Input id={`payout-ref-${request.id}`} value={references[request.id] || ""} onChange={(event) => setReferences((prev) => ({ ...prev, [request.id]: event.target.value }))} /></Field>
-                  <Field label="Review note" htmlFor={`payout-note-${request.id}`}><Input id={`payout-note-${request.id}`} value={notes[request.id] || ""} onChange={(event) => setNotes((prev) => ({ ...prev, [request.id]: event.target.value }))} /></Field>
-                  <div className="flex gap-2"><Button loading={busyId === request.id} disabled={!references[request.id]?.trim()} onClick={() => void reviewPayout(request.id, true)}>Confirm paid</Button><Button variant="danger" disabled={!!busyId} onClick={() => void reviewPayout(request.id, false)}>Reject and return funds</Button></div>
-                </>}
-              </div>
-            </Card>
-          )) : <Card><EmptyState title="No payout requests match these filters" /></Card>)}
           {tab === "escrow" && (orders.length ? orders.map((order) => (
             <Card key={order.id}><div className="flex flex-wrap items-center justify-between gap-3 p-5"><div><Link href={`/orders/${order.id}`} className="font-semibold text-green-800 hover:underline">{order.reference} · {order.product_title}</Link><p className="mt-1 text-sm text-gray-600">{order.buyer_name} → {order.seller_name} · {formatEtb(order.total_amount)}</p>{order.dispute_reason && <p className="mt-1 text-sm text-red-700">Dispute: {order.dispute_reason}</p>}</div><StatusPill value={order.status} /></div></Card>
           )) : <Card><EmptyState title="No pending escrow releases or disputes" description="Quality-confirmed orders and disputes will be listed here." /> </Card>)}
         </div>
       )}
-      {!loading && tab !== "escrow" && (
+      {!loading && tab === "funding" && (
         <div className="flex items-center justify-between text-sm text-gray-600">
-          <span>{tab === "funding" ? fundingTotal : payoutTotal} requests</span>
+          <span>{fundingTotal} requests</span>
           <div className="flex gap-2">
             <Button size="sm" variant="secondary" disabled={!hasPrevious} onClick={() => setPage((value) => Math.max(1, value - 1))}>Previous</Button>
             <span className="self-center">Page {page}</span>

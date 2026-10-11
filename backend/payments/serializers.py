@@ -197,6 +197,9 @@ class PaymentRecordSerializer(serializers.ModelSerializer):
 
 
 class OrderSerializer(serializers.ModelSerializer):
+    delivery_information = serializers.SerializerMethodField()
+    counterparty_contact = serializers.SerializerMethodField()
+
     wholesaler_name = serializers.CharField(source="wholesaler.full_name", read_only=True)
     farmer_name = serializers.CharField(
         source="farmer.full_name", read_only=True, allow_null=True
@@ -238,6 +241,7 @@ class OrderSerializer(serializers.ModelSerializer):
             "product", "product_title", "quantity",
             "total_amount", "total", "status", "status_display",
             "payment_status", "payment_status_display", "delivery_information",
+            "counterparty_contact",
             "delivered_at", "quality_confirmed_at", "dispute_reason",
             "agreement_status", "allowed_transitions", "date", "created_at",
             "updated_at",
@@ -246,6 +250,88 @@ class OrderSerializer(serializers.ModelSerializer):
             "id", "reference", "wholesaler", "farmer", "total_amount",
             "status", "created_at", "updated_at",
         ]
+
+    def _has_released_contact_access(self, order, user):
+        from payments.models import (
+            OrderContactDisclosure,
+            OrderPaymentStatus,
+            OrderStatus,
+        )
+
+        return (
+            user.pk in (order.buyer.pk, order.seller.pk)
+            and order.status not in (
+                OrderStatus.PENDING_SELLER_APPROVAL,
+                OrderStatus.REJECTED,
+                OrderStatus.CANCELLED,
+                OrderStatus.DISPUTED,
+            )
+            and order.payment_status not in (
+                OrderPaymentStatus.REFUNDED,
+                OrderPaymentStatus.DISPUTED,
+            )
+            and OrderContactDisclosure.objects.filter(
+                order=order, recipient=user
+            ).exists()
+        )
+
+    def _disclosed_fields(self, order, user):
+        from payments.models import OrderContactDisclosure
+
+        return {
+            field
+            for disclosure in OrderContactDisclosure.objects.filter(
+                order=order, recipient=user
+            ).only("disclosed_fields")
+            for field in disclosure.disclosed_fields
+        }
+
+    def get_delivery_information(self, order):
+        request = self.context.get("request")
+        if request is None:
+            return ""
+        if request.user.pk == order.buyer.pk:
+            return order.delivery_information
+        if (
+            self._has_released_contact_access(order, request.user)
+            and "delivery_information"
+            in self._disclosed_fields(order, request.user)
+        ):
+            return order.delivery_information
+        return ""
+
+    def get_counterparty_contact(self, order):
+        request = self.context.get("request")
+        if request is None or not self._has_released_contact_access(
+            order, request.user
+        ):
+            return None
+        contact = order.seller if request.user.pk == order.buyer.pk else order.buyer
+        disclosed = self._disclosed_fields(order, request.user)
+        result = {
+            "id": str(contact.pk),
+            "full_name": contact.full_name,
+        }
+        if "phone" in disclosed:
+            result["phone"] = contact.phone
+        if "email" in disclosed:
+            result["email"] = contact.email
+        if "address" in disclosed:
+            registration = getattr(contact, "registration", None)
+            result["address"] = (
+                registration.business_address if registration else contact.location
+            )
+        if "precise_location" in disclosed:
+            result["precise_location"] = {
+                "address": (
+                    registration.business_address
+                    if registration and registration.business_address
+                    else contact.location
+                ),
+                "latitude": contact.latitude,
+                "longitude": contact.longitude,
+            }
+        return result
 
     @extend_schema_field(serializers.CharField)
     def get_total(self, obj):
@@ -409,6 +495,23 @@ class ChapaFundingCreateSerializer(serializers.Serializer):
 
 class WalletPayoutRequestSerializer(serializers.ModelSerializer):
     wallet_owner = serializers.CharField(source="wallet.user.full_name", read_only=True)
+    wallet_owner_id = serializers.UUIDField(source="wallet.user_id", read_only=True)
+    wallet_owner_role = serializers.CharField(source="wallet.user.role", read_only=True)
+    currency = serializers.CharField(source="wallet.currency", read_only=True)
+    destination = serializers.CharField()
+    payout_account_bank = serializers.CharField(
+        source="payout_account.bank.name", read_only=True, default=""
+    )
+    payout_account_masked = serializers.CharField(
+        source="payout_account.masked_account_number", read_only=True, default=""
+    )
+    payout_account_status = serializers.CharField(
+        source="payout_account.status", read_only=True, allow_null=True
+    )
+    reviewed_by_name = serializers.CharField(
+        source="reviewed_by.full_name", read_only=True, allow_null=True
+    )
+    review_notes = serializers.SerializerMethodField()
     payout_account = serializers.PrimaryKeyRelatedField(
         queryset=BankAccount.objects.all(), required=False, allow_null=True
     )
@@ -416,8 +519,10 @@ class WalletPayoutRequestSerializer(serializers.ModelSerializer):
     class Meta:
         model = WalletPayoutRequest
         fields = [
-            "id", "wallet", "wallet_owner", "amount", "destination", "status",
-            "payout_account", "submitted_at", "reviewed_at",
+            "id", "wallet", "wallet_owner", "wallet_owner_id", "wallet_owner_role",
+            "currency", "amount", "destination", "status", "payout_account",
+            "payout_account_bank", "payout_account_masked", "payout_account_status",
+            "submitted_at", "reviewed_at", "reviewed_by_name",
             "external_reference", "review_notes",
         ]
         read_only_fields = [
@@ -456,6 +561,34 @@ class WalletPayoutRequestSerializer(serializers.ModelSerializer):
     def validate_destination(self, value):
         value = value.strip()
         return value
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        request = self.context.get("request")
+        if request and request.user.role in (Role.FINANCIAL_MANAGER, Role.SUPER_ADMIN):
+            if instance.payout_account_id:
+                representation["destination"] = (
+                    f"{instance.payout_account.bank.name} "
+                    f"{instance.payout_account.masked_account_number}"
+                )
+            else:
+                trailing_digits = "".join(
+                    character for character in instance.destination if character.isdigit()
+                )[-4:]
+                representation["destination"] = (
+                    f"Manual destination ending ****{trailing_digits}"
+                    if trailing_digits
+                    else "Manual destination (masked)"
+                )
+        return representation
+
+    def get_review_notes(self, obj):
+        request = self.context.get("request")
+        if request and request.user.role in (Role.FINANCIAL_MANAGER, Role.SUPER_ADMIN):
+            return obj.review_notes
+        if obj.status == "REJECTED":
+            return obj.review_notes
+        return ""
 
 
 class BusinessAgreementSerializer(serializers.ModelSerializer):
@@ -523,3 +656,28 @@ class PayoutReviewDecisionSerializer(serializers.Serializer):
         required=False, allow_blank=True, default=""
     )
     notes = serializers.CharField(required=False, allow_blank=True, default="")
+
+    def validate(self, attrs):
+        if not attrs["approve"] and not attrs["notes"].strip():
+            raise serializers.ValidationError(
+                {"notes": "Provide a reason when rejecting the payout."}
+            )
+        if attrs["approve"] and not attrs["external_reference"].strip():
+            raise serializers.ValidationError(
+                {
+                    "external_reference": (
+                        "Enter the verified bank or transfer reference after "
+                        "confirming the external payment."
+                    )
+                }
+            )
+        if attrs["approve"] and not attrs["notes"].strip():
+            raise serializers.ValidationError(
+                {
+                    "notes": (
+                        "Record the external confirmation evidence checked before "
+                        "marking this payout paid."
+                    )
+                }
+            )
+        return attrs

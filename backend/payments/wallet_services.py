@@ -34,6 +34,27 @@ def wallet_for(user, *, lock=False):
     return wallet
 
 
+def payout_reservation_is_active(payout):
+    references = (
+        f"PAYOUT-HOLD-{payout.pk}",
+        f"PAYOUT-{payout.pk}",
+        f"PAYOUT-RETURN-{payout.pk}",
+    )
+    hold_exists = WalletTransaction.objects.filter(
+        wallet_id=payout.wallet_id,
+        reference=references[0],
+        transaction_type=WalletTransactionType.PAYOUT_RESERVATION,
+        amount=payout.amount,
+        available_delta=-payout.amount,
+        held_delta=payout.amount,
+    ).exists()
+    settlement_exists = WalletTransaction.objects.filter(
+        wallet_id=payout.wallet_id,
+        reference__in=references[1:],
+    ).exists()
+    return hold_exists and not settlement_exists
+
+
 def reserve_order_funds(order, actor):
     """Move order funds from spendable to held balance exactly once."""
     wallet = wallet_for(order.buyer, lock=True)
@@ -229,15 +250,20 @@ def review_payout_request(
     ).get(pk=request_id)
     if payout.status != PayoutStatus.PENDING:
         raise ValidationError({"status": "This payout request has already been reviewed."})
+    previous_status = payout.status
     wallet = Wallet.objects.select_for_update().get(pk=payout.wallet_id)
+    if not payout_reservation_is_active(payout):
+        raise ValidationError(
+            {"wallet": "This payout does not have an active reservation ledger entry."}
+        )
+    if wallet.held_balance < payout.amount:
+        raise ValidationError({"wallet": "Held payout funds are not available."})
     if approve:
         external_reference = external_reference.strip()
         if not external_reference:
             raise ValidationError(
                 {"external_reference": "Enter the verified bank or transfer reference."}
             )
-        if wallet.held_balance < payout.amount:
-            raise ValidationError({"wallet": "Held payout funds are not available."})
         wallet.held_balance -= payout.amount
         wallet.save(update_fields=["held_balance", "updated_at"])
         payout.status = PayoutStatus.PAID
@@ -282,6 +308,10 @@ def review_payout_request(
         actor=financial_manager,
         action="wallet_payout_paid" if approve else "wallet_payout_rejected",
         target=str(payout.pk),
-        detail=f"{payout.amount:.2f} ETB; {external_reference}; {notes.strip()}",
+        detail=(
+            f"Status: {previous_status} -> {payout.status}; "
+            f"amount: {payout.amount:.2f} ETB; "
+            f"external reference: {external_reference}; reason/note: {notes.strip()}"
+        ),
     )
     return payout

@@ -12,6 +12,9 @@
  */
 import type {
   AdminAccount,
+  AdminAccountActivity,
+  AdminCreationOptions,
+  AdminScope,
   AdminDashboardData,
   AdminAccount as AdminAccountType,
   AuditLog,
@@ -30,6 +33,10 @@ import type {
   Message,
   Notification,
   BusinessAgreement,
+  RegistrationDetails,
+  RegistrationDocument,
+  RegistrationLocation,
+  RegistrationProductType,
   Order,
   OrderStatus,
   Paginated,
@@ -52,6 +59,7 @@ import type {
   TransactionVolume,
   User,
   Wallet,
+  WalletPayoutDetail,
   WalletFundingRequest,
   WalletPayoutRequest,
   WalletRequestQuery,
@@ -70,6 +78,47 @@ export const WS_BASE = (
 
 const ACCESS_KEY = "greenpath_access";
 const REFRESH_KEY = "greenpath_refresh";
+const REGISTRATION_TOKEN_KEY = "greenpath_registration_completion";
+
+export function setRegistrationCompletionToken(token: string | null) {
+  if (typeof window === "undefined") return;
+  if (token) sessionStorage.setItem(REGISTRATION_TOKEN_KEY, token);
+  else sessionStorage.removeItem(REGISTRATION_TOKEN_KEY);
+}
+
+async function registrationFetch<T>(
+  path: string,
+  init: RequestInit = {}
+): Promise<T> {
+  const token =
+    typeof window === "undefined"
+      ? null
+      : sessionStorage.getItem(REGISTRATION_TOKEN_KEY);
+  if (!token) throw new Error("Registration session expired. Resume registration to continue.");
+  const headers = new Headers(init.headers);
+  headers.set("Authorization", `Bearer ${token}`);
+  if (!(init.body instanceof FormData) && init.body !== undefined) {
+    headers.set("Content-Type", "application/json");
+  }
+  const response = await fetch(`${API_BASE}/registration${path}`, {
+    ...init,
+    headers,
+    credentials: "include",
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message =
+      typeof payload?.error === "string"
+        ? payload.error
+        : typeof payload?.detail === "string"
+          ? payload.detail
+          : payload?.error && typeof payload.error === "object"
+            ? Object.values(payload.error).flat().join(" ")
+            : "Registration request failed.";
+    throw new Error(message);
+  }
+  return payload as T;
+}
 
 // ---------------------------------------------------------------------------
 // Token storage — access token in sessionStorage, refresh in an httpOnly cookie
@@ -233,6 +282,10 @@ function post<T>(endpoint: string, body?: unknown) {
   });
 }
 
+function postFormData<T>(endpoint: string, body: FormData) {
+  return apiFetch<T>(endpoint, { method: "POST", body });
+}
+
 function postWithHeaders<T>(
   endpoint: string,
   body: unknown,
@@ -321,8 +374,33 @@ export const authApi = {
   register: (data: RegisterPayload) =>
     post<RegisterResponse>("/auth/register/", data),
 
+  resumeRegistration: (email: string, password: string) =>
+    post<{ success: true; completion_token: string }>(
+      "/auth/registration/resume/",
+      { email, password }
+    ),
+
   login: (email: string, password: string) =>
     post<LoginResponse>("/auth/login/", { email, password }),
+
+  requestPasswordReset: (channel: "email" | "sms", identifier: string) =>
+    post<{ success: true; message: string }>("/auth/password-reset/request/", {
+      channel,
+      identifier,
+    }),
+
+  confirmPasswordReset: (uid: string, token: string, new_password: string) =>
+    post<{ success: true; message: string }>("/auth/password-reset/confirm/", {
+      uid,
+      token,
+      new_password,
+    }),
+
+  changePassword: (current_password: string, new_password: string) =>
+    post<{ success: true; message: string }>("/auth/password/change/", {
+      current_password,
+      new_password,
+    }),
 
   logout: () => post<{ success: true; message: string }>("/auth/logout/"),
 
@@ -347,6 +425,78 @@ export const authApi = {
     get<{ success: true; announcement: string; maintenance_mode: boolean }>(
       "/auth/announcement/"
     ),
+};
+
+export const registrationApi = {
+  locations: (parentId?: string) =>
+    apiFetch<RegistrationLocation[]>(
+      `/registration/locations/${parentId ? `?parent_id=${encodeURIComponent(parentId)}` : ""}`
+    ),
+  productTypes: () =>
+    apiFetch<RegistrationProductType[]>("/registration/product-types/"),
+  getDraft: () => registrationFetch<RegistrationDetails>("/me/"),
+  saveDraft: (data: Partial<{
+    full_name: string;
+    phone: string;
+    date_of_birth: string | null;
+    sex: string;
+    business_name: string;
+    business_address: string;
+    location: string | null;
+    product_selections: { product_type: string; intent: string }[];
+  }>) =>
+    registrationFetch<RegistrationDetails>("/me/", {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+  uploadDocument: (file: File) => {
+    const body = new FormData();
+    body.append("file", file);
+    return registrationFetch<RegistrationDocument>("/me/documents/", {
+      method: "POST",
+      body,
+    });
+  },
+  deleteDocument: (id: string) =>
+    registrationFetch<void>(`/me/documents/${id}/`, { method: "DELETE" }),
+  submit: () =>
+    registrationFetch<{ success: true; message: string; status: string }>(
+      "/me/submit/",
+      { method: "POST", body: JSON.stringify({ confirm: true }) }
+    ),
+};
+
+export const registrationAdminApi = {
+  list: (params?: { page?: number; role?: string; status?: string; search?: string }) =>
+    get<Paginated<RegistrationDetails>>("/admin/registrations/", toParams(params)),
+  decision: (id: string, action: "APPROVE" | "REJECT" | "REQUEST_CHANGES", reason?: string) =>
+    post<{ success: true; registration: RegistrationDetails }>(
+      `/admin/registrations/${id}/decision/`,
+      { action, reason }
+    ),
+  verifyDocument: (id: string, verified: boolean, note?: string) =>
+    post<RegistrationDocument>(
+      `/admin/registration-documents/${id}/verification/`,
+      { verified, note }
+    ),
+  downloadDocument: async (id: string, filename: string) => {
+    const token =
+      typeof window === "undefined"
+        ? null
+        : sessionStorage.getItem(ACCESS_KEY);
+    if (!token) throw new Error("Sign in again to access this document.");
+    const response = await fetch(
+      `${API_BASE}/admin/registration-documents/${id}/file/`,
+      { headers: { Authorization: `Bearer ${token}` }, credentials: "include" }
+    );
+    if (!response.ok) throw new Error("The document is unavailable or you are not authorized to access it.");
+    const objectUrl = URL.createObjectURL(await response.blob());
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = filename;
+    anchor.click();
+    URL.revokeObjectURL(objectUrl);
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -473,6 +623,37 @@ export const chatApi = {
     post<WithResource<"message", Message>>(`/chat/channels/${id}/messages/`, {
       content,
     }),
+  sendVoice: (id: string, audio: File) => {
+    const body = new FormData();
+    body.append("kind", "VOICE");
+    body.append("audio", audio);
+    return postFormData<WithResource<"message", Message>>(
+      `/chat/channels/${id}/messages/`,
+      body
+    );
+  },
+  downloadVoice: async (channelId: string, messageId: string) => {
+    const response = await rawRequest(
+      `/chat/channels/${channelId}/messages/${messageId}/audio/`
+    );
+    if (!response.ok) {
+      let payload: unknown = null;
+      try {
+        payload = await response.json();
+      } catch {
+        payload = null;
+      }
+      throw new Error(extractErrorMessage(payload, "Voice message is unavailable."));
+    }
+    return response.blob();
+  },
+  pendingVoiceMessages: () =>
+    get<Paginated<Message>>("/chat/voice-moderation/"),
+  reviewVoice: (id: string, decision: "APPROVE" | "BLOCK", reason: string) =>
+    post<WithResource<"message", Message>>(
+      `/chat/voice-moderation/${id}/review/`,
+      { decision, reason }
+    ),
 
   markChannelRead: (id: string) =>
     post<{ success: true; updated: number }>(
@@ -543,6 +724,16 @@ export const ordersApi = {
 
   setStatus: (id: string, status: OrderStatus) =>
     patch<WithResource<"order", Order>>(`/orders/${id}/status/`, { status }),
+  discloseContact: (
+    id: string,
+    recipient_id: string,
+    fields: string[],
+    reason: string
+  ) =>
+    post<WithResource<"order", Order> & { disclosure_id: string }>(
+      `/orders/${id}/disclose-contact/`,
+      { recipient_id, fields, reason }
+    ),
   confirmQuality: (id: string) =>
     post<WithResource<"order", Order>>(`/orders/${id}/confirm-quality/`),
   dispute: (id: string, reason: string) =>
@@ -592,6 +783,8 @@ export const walletApi = {
     ),
   payouts: (params?: WalletRequestQuery) =>
     get<Paginated<WalletPayoutRequest>>("/wallet/payouts/", toParams(params)),
+  payoutDetail: (id: string) =>
+    get<WalletPayoutDetail>(`/wallet/payouts/${id}/`),
   requestPayout: (data: {
     amount: string;
     destination?: string;
@@ -674,6 +867,8 @@ export const adminApi = {
     status?: string;
     search?: string;
     ordering?: string;
+    created_from?: string;
+    created_to?: string;
   }) => get<Paginated<DirectoryUser>>("/admin/pending-users/", toParams(params)),
 
   users: (params?: {
@@ -852,19 +1047,57 @@ export const superAdminApi = {
       "/superadmin/data/",
       { resource, limit }
     ),
+  users: (params?: {
+    page?: number;
+    search?: string;
+    role?: string;
+    status?: string;
+    created_from?: string;
+    created_to?: string;
+  }) => get<Paginated<DirectoryUser>>("/superadmin/users/", toParams(params)),
 
   settings: () =>
     get<WithResource<"settings", PlatformSettings>>("/superadmin/settings/"),
 
-  updateSettings: (data: Partial<PlatformSettings>) =>
+  updateSettings: (data: Partial<PlatformSettings> & { reason?: string }) =>
     patch<
       WithResource<"settings", PlatformSettings> & {
         updated: Partial<PlatformSettings>;
       }
     >("/superadmin/settings/", data),
 
-  accounts: (params?: { page?: number; status?: string; search?: string }) =>
+  scopes: () => get<Paginated<AdminScope>>("/superadmin/admin-scopes/"),
+
+  saveScope: (data: {
+    user: string;
+    level: "GLOBAL" | "LOCATION";
+    location: string | null;
+  }) =>
+    post<AdminScope>("/superadmin/admin-scopes/", data),
+
+  accounts: (params?: {
+    page?: number;
+    status?: string;
+    search?: string;
+    role?: string;
+    scope_type?: string;
+    location_id?: string;
+    created_from?: string;
+    created_to?: string;
+    last_active_from?: string;
+    last_active_to?: string;
+  }) =>
     get<Paginated<AdminAccount>>("/superadmin/accounts/", toParams(params)),
+  accountActivity: (
+    id: string,
+    params?: { days?: string; from?: string; to?: string; page?: number },
+  ) =>
+    get<AdminAccountActivity>(
+      `/superadmin/accounts/${id}/activity/`,
+      toParams(params),
+    ),
+  creationOptions: () =>
+    get<AdminCreationOptions>("/superadmin/accounts/creation-options/"),
 
   createAccount: (data: {
     full_name: string;
@@ -873,6 +1106,9 @@ export const superAdminApi = {
     role: string;
     phone?: string;
     location?: string;
+    scope_level?: "GLOBAL" | "LOCATION";
+    scope_location?: string | null;
+    scope_type?: string;
   }) => post<AdminAccountType>("/superadmin/accounts/", data),
 
   updateAccount: (id: string, data: Partial<AdminAccount> & { password?: string }) =>
@@ -886,8 +1122,30 @@ export const superAdminApi = {
     post<WithResource<"user", DirectoryUser> & { message: string }>(
       `/superadmin/accounts/${id}/reinstate/`
     ),
+  suspendAccount: (id: string, reason?: string) =>
+    post<WithResource<"user", DirectoryUser> & { message: string }>(
+      `/superadmin/accounts/${id}/suspend/`,
+      { reason }
+    ),
 
-  audit: (page?: number) => get<Paginated<AuditLog>>("/superadmin/audit/", { page }),
+  audit: (
+    page?: number,
+    filters?: {
+      administrator?: string;
+      role?: string;
+      action?: string;
+      target?: string;
+      from?: string;
+      to?: string;
+      registration_status?: string;
+      license_status?: string;
+      location_id?: string;
+    },
+  ) =>
+    get<Paginated<AuditLog>>("/superadmin/audit/", {
+      page,
+      ...filters,
+    }),
 
   override: (id: string, decision: SuperAdminDecision, reason?: string) =>
     post<
@@ -896,6 +1154,13 @@ export const superAdminApi = {
         previous_status: string;
       }
     >(`/superadmin/users/${id}/override/`, { decision, reason }),
+
+  unlockLogin: (id: string, reason: string) =>
+    post<
+      WithResource<"user", DirectoryUser> & {
+        message: string;
+      }
+    >(`/superadmin/users/${id}/unlock-login/`, { reason }),
 
   announcement: (announcement: string) =>
     post<{ success: true; message: string; recipients: number }>(

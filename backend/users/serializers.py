@@ -1,7 +1,20 @@
-from drf_spectacular.utils import extend_schema_field
-from rest_framework import serializers
+from datetime import timedelta
 
-from .models import AccountStatus, AuditLog, Role, User
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import transaction
+from django.utils import timezone
+from drf_spectacular.utils import extend_schema_field
+from rest_framework import serializers, status
+from rest_framework.exceptions import APIException
+
+from registrations.models import AdministrativeLocation, AdministratorScope
+from registrations.services import (
+    admin_scope_type_for_location,
+    can_assign_admin_scope,
+)
+
+from .models import AccountStatus, AuditLog, PlatformSettings, Role, User
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -50,10 +63,14 @@ class UserSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         password = validated_data.pop("password")
-        validated_data["status"] = AccountStatus.PENDING
+        config = PlatformSettings.load()
+        is_auto_approved = not config.require_approval
+        validated_data["status"] = (
+            AccountStatus.APPROVED if is_auto_approved else AccountStatus.PENDING
+        )
         # A PENDING account exists but cannot authenticate until a User Admin
         # approves it (fig 3.9), so the Django auth flag starts disabled.
-        validated_data["is_active"] = False
+        validated_data["is_active"] = is_auto_approved
         user = User(**validated_data)
         user.set_password(password)
         user.save()
@@ -93,7 +110,7 @@ class PublicUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
-            "id", "full_name", "phone", "location", "role",
+            "id", "full_name", "role",
             "role_display", "status", "profile_photo", "financially_verified",
             "is_online", "created_at",
         ]
@@ -121,21 +138,53 @@ class DirectoryUserSerializer(serializers.ModelSerializer):
         fields = [
             "id", "full_name", "email", "phone", "location", "role",
             "role_display", "status", "status_display", "rejection_reason",
-            "privacy_policy_accepted", "created_at", "updated_at",
+            "privacy_policy_accepted", "failed_login_attempts", "locked_until",
+            "created_at", "updated_at",
         ]
 
 
 class AdminAccountSerializer(serializers.ModelSerializer):
-    """Create/modify Admin sub-role accounts (FR-SA-02)."""
+    """Create/modify staff accounts within the caller's authority."""
 
     password = serializers.CharField(write_only=True, min_length=8, required=False)
     role_display = serializers.CharField(source="get_role_display", read_only=True)
+    scope_label = serializers.SerializerMethodField()
+    location_name = serializers.SerializerMethodField()
+    last_login = serializers.DateTimeField(read_only=True)
+    scope_level = serializers.ChoiceField(
+        choices=AdministratorScope.Level.choices,
+        write_only=True,
+        required=False,
+    )
+    scope_type = serializers.ChoiceField(
+        choices=(
+            ("TOP_LEVEL", "Top-Level User Admin"),
+            ("REGIONAL", "Regional Admin"),
+            ("CITY", "City Administration Admin"),
+            ("ZONAL", "Zonal Admin"),
+            ("WOREDA", "Woreda Admin"),
+            ("SUBCITY", "Sub-city Admin"),
+            ("DISTRICT", "District Admin"),
+            ("ADMIN_DIVISION", "Administrative Division Admin"),
+        ),
+        write_only=True,
+        required=False,
+    )
+    scope_location = serializers.PrimaryKeyRelatedField(
+        queryset=AdministrativeLocation.objects.filter(active=True),
+        write_only=True,
+        required=False,
+        allow_null=True,
+    )
 
     class Meta:
         model = User
         fields = [
             "id", "full_name", "email", "password", "phone", "location",
             "role", "role_display", "status", "is_staff", "created_at",
+            "last_login",
+            "scope_level", "scope_location", "scope_type", "scope_label",
+            "location_name",
         ]
         read_only_fields = ["id", "role_display", "created_at"]
 
@@ -144,64 +193,352 @@ class AdminAccountSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 "Admin accounts must use the USER_ADMIN or FINANCIAL_MANAGER role."
             )
+        request = self.context.get("request")
+        if (
+            value == Role.FINANCIAL_MANAGER
+            and request
+            and request.user.role != Role.SUPER_ADMIN
+        ):
+            raise serializers.ValidationError(
+                "Only the Super Admin can create or manage Financial Managers."
+            )
         return value
 
     def validate(self, attrs):
+        request = self.context.get("request")
         if not attrs.get("password") and self.instance is None:
             raise serializers.ValidationError({"password": "This field is required."})
+        if attrs.get("role", getattr(self.instance, "role", None)) == Role.USER_ADMIN:
+            current_scope = None
+            if self.instance is not None:
+                current_scope = AdministratorScope.objects.filter(
+                    user=self.instance
+                ).first()
+            scope_level = attrs.get(
+                "scope_level",
+                current_scope.level if current_scope else None,
+            )
+            location = attrs.get(
+                "scope_location",
+                current_scope.location if current_scope else None,
+            )
+            scope_type = attrs.get(
+                "scope_type",
+                admin_scope_type_for_location(location) if location else "TOP_LEVEL",
+            )
+            if scope_level is None:
+                raise serializers.ValidationError(
+                    {"scope_level": "Choose the new administrator's geographic scope."}
+                )
+            if scope_level == AdministratorScope.Level.GLOBAL and location is not None:
+                raise serializers.ValidationError(
+                    {"scope_location": "A global administrator scope has no location."}
+                )
+            if scope_level == AdministratorScope.Level.LOCATION and location is None:
+                raise serializers.ValidationError(
+                    {"scope_location": "Choose a location for this administrator."}
+                )
+            if request and not can_assign_admin_scope(
+                request.user,
+                scope_level,
+                location,
+                scope_type,
+            ):
+                raise serializers.ValidationError(
+                    {
+                        "scope_location": (
+                            "You cannot assign an administrator outside your "
+                            "permitted geographic scope."
+                        )
+                    }
+                )
+            attrs["scope_type"] = scope_type
         return attrs
+
+    def get_scope_label(self, obj):
+        scope = AdministratorScope.objects.filter(user=obj).select_related(
+            "location"
+        ).first()
+        if scope is None:
+            return ""
+        if scope.level == AdministratorScope.Level.GLOBAL:
+            return "Top-Level User Admin (Nationwide)"
+        label = {
+            "REGIONAL": "Regional Admin",
+            "CITY": "City Administration Admin",
+            "ZONAL": "Zonal Admin",
+            "WOREDA": "Woreda Admin",
+            "SUBCITY": "Sub-city Admin",
+            "DISTRICT": "District Admin",
+        }.get(admin_scope_type_for_location(scope.location), "Administrative Division Admin")
+        return label
+
+    def get_location_name(self, obj):
+        scope = AdministratorScope.objects.filter(user=obj).select_related(
+            "location"
+        ).first()
+        return scope.location.name if scope and scope.location_id else "Nationwide"
 
     def create(self, validated_data):
         password = validated_data.pop("password")
+        scope_level = validated_data.pop("scope_level", None)
+        scope_location = validated_data.pop("scope_location", None)
+        validated_data.pop("scope_type", None)
         validated_data["status"] = AccountStatus.APPROVED
         validated_data.setdefault("privacy_policy_accepted", True)
-        user = User(**validated_data)
-        user.set_password(password)
-        user.save()
+        with transaction.atomic():
+            user = User(**validated_data)
+            user.set_password(password)
+            user.save()
+            if user.role == Role.USER_ADMIN:
+                AdministratorScope.objects.update_or_create(
+                    user=user,
+                    defaults={
+                        "level": scope_level,
+                        "location": scope_location,
+                    },
+                )
         return user
 
     def update(self, instance, validated_data):
+        scope_level = validated_data.pop("scope_level", None)
+        scope_location = validated_data.pop("scope_location", None)
+        validated_data.pop("scope_type", None)
         password = validated_data.pop("password", None)
         for field, value in validated_data.items():
             setattr(instance, field, value)
         if password:
             instance.set_password(password)
+            instance.password_changed_at = timezone.now()
         instance.save()
+        if scope_level is not None and instance.role == Role.USER_ADMIN:
+            AdministratorScope.objects.update_or_create(
+                user=instance,
+                defaults={"level": scope_level, "location": scope_location},
+            )
         return instance
 
 
 class AuditLogSerializer(serializers.ModelSerializer):
     actor_name = serializers.CharField(source="actor.full_name", read_only=True, default=None)
+    actor_role = serializers.CharField(source="actor.role", read_only=True, default="")
 
     class Meta:
         model = AuditLog
-        fields = ["id", "actor", "actor_name", "action", "target", "detail", "created_at"]
+        fields = [
+            "id",
+            "actor",
+            "actor_name",
+            "actor_role",
+            "action",
+            "target",
+            "detail",
+            "created_at",
+        ]
         read_only_fields = fields
+
+
+class LoginAttemptError(APIException):
+    status_code = status.HTTP_400_BAD_REQUEST
+
+    def __init__(
+        self,
+        message,
+        *,
+        attempts_remaining,
+        max_attempts,
+        locked_until=None,
+        retry_after_seconds=0,
+    ):
+        super().__init__(message)
+        self.attempts_remaining = attempts_remaining
+        self.max_attempts = max_attempts
+        self.locked_until = locked_until.isoformat() if locked_until else None
+        self.retry_after_seconds = retry_after_seconds
 
 
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True)
 
-    def validate(self, attrs):
-        # Credentials are checked directly rather than through ``authenticate()``
-        # so a PENDING/REJECTED/SUSPENDED account (is_active=False) still gets a
-        # precise reason.  The account state is only revealed once the password
-        # is proven, so the response never discloses whether an email exists.
-        user = User.objects.filter(email__iexact=attrs["email"].strip()).first()
-        if user is None or not user.check_password(attrs["password"]):
-            raise serializers.ValidationError("Invalid email or password.")
-        if user.status == AccountStatus.PENDING:
-            raise serializers.ValidationError("Your account is pending admin approval.")
-        if user.status in (AccountStatus.REJECTED, AccountStatus.DEACTIVATED):
-            raise serializers.ValidationError(
-                f"Your account is {user.get_status_display().lower()}."
+    @staticmethod
+    def _login_error(message, *, attempts_remaining, max_attempts, locked_until=None):
+        retry_after_seconds = 0
+        if locked_until is not None:
+            retry_after_seconds = max(
+                1, int((locked_until - timezone.now()).total_seconds() + 0.999)
             )
-        if user.status == AccountStatus.SUSPENDED:
-            raise serializers.ValidationError("Your account is suspended.")
-        if not user.is_active:
-            raise serializers.ValidationError("Your account is not active.")
+        return LoginAttemptError(
+            message,
+            attempts_remaining=attempts_remaining,
+            max_attempts=max_attempts,
+            locked_until=locked_until,
+            retry_after_seconds=retry_after_seconds,
+        )
+
+    def validate(self, attrs):
+        error = None
+        login_error = None
+        user = None
+        with transaction.atomic():
+            user = (
+                User.objects.select_for_update()
+                .filter(email__iexact=attrs["email"].strip())
+                .first()
+            )
+            if user is None:
+                error = "Invalid email or password."
+            else:
+                now = timezone.now()
+                is_locked = user.locked_until and user.locked_until > now
+                password_matches = user.check_password(attrs["password"])
+                if is_locked:
+                    policy = PlatformSettings.load()
+                    error = "Sign-in is temporarily locked."
+                    login_error = self._login_error(
+                        error,
+                        attempts_remaining=0,
+                        max_attempts=policy.max_failed_login_attempts,
+                        locked_until=user.locked_until,
+                    )
+                elif not password_matches:
+                    user.failed_login_attempts += 1
+                    policy = PlatformSettings.load()
+                    if user.failed_login_attempts >= policy.max_failed_login_attempts:
+                        user.locked_until = now + timedelta(
+                            minutes=policy.lockout_duration_minutes
+                        )
+                        user.failed_login_attempts = 0
+                        AuditLog.objects.create(
+                            actor=None,
+                            action="account_login_locked",
+                            target=str(user.pk),
+                            detail=(
+                                "Account locked after consecutive failed password "
+                                f"attempts for {policy.lockout_duration_minutes} minutes."
+                            ),
+                        )
+                    else:
+                        AuditLog.objects.create(
+                            actor=None,
+                            action="account_login_failed",
+                            target=str(user.pk),
+                            detail="Invalid password.",
+                        )
+                    user.save(
+                        update_fields=["failed_login_attempts", "locked_until"]
+                    )
+                    error = "Invalid email or password."
+                    login_error = self._login_error(
+                        error,
+                        attempts_remaining=(
+                            0
+                            if user.locked_until and user.locked_until > now
+                            else max(
+                                0,
+                                policy.max_failed_login_attempts
+                                - user.failed_login_attempts,
+                            )
+                        ),
+                        max_attempts=policy.max_failed_login_attempts,
+                        locked_until=user.locked_until,
+                    )
+                else:
+                    if user.failed_login_attempts or user.locked_until:
+                        user.failed_login_attempts = 0
+                        user.locked_until = None
+                        user.save(
+                            update_fields=["failed_login_attempts", "locked_until"]
+                        )
+                    if user.status == AccountStatus.PENDING:
+                        error = "Your account is pending admin approval."
+                    elif user.status in (
+                        AccountStatus.REJECTED,
+                        AccountStatus.DEACTIVATED,
+                    ):
+                        error = f"Your account is {user.get_status_display().lower()}."
+                    elif user.status == AccountStatus.SUSPENDED:
+                        error = "Your account is suspended."
+                    elif not user.is_active:
+                        error = "Your account is not active."
+        if login_error:
+            raise login_error
+        if error:
+            raise serializers.ValidationError(error)
         attrs["user"] = user
+        return attrs
+
+
+class PasswordResetRequestSerializer(serializers.Serializer):
+    channel = serializers.ChoiceField(choices=("email", "sms"))
+    identifier = serializers.CharField(max_length=255, trim_whitespace=True)
+
+    def validate(self, attrs):
+        if attrs["channel"] == "email":
+            attrs["identifier"] = serializers.EmailField().run_validation(
+                attrs["identifier"]
+            )
+        elif len(attrs["identifier"]) > 20:
+            raise serializers.ValidationError(
+                {"identifier": "Enter a phone number no longer than 20 characters."}
+            )
+        return attrs
+
+    def validate_identifier(self, value):
+        if not value.strip():
+            raise serializers.ValidationError("Enter your email address or phone number.")
+        return value.strip()
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    uid = serializers.CharField(max_length=100)
+    token = serializers.CharField(max_length=100)
+    new_password = serializers.CharField(write_only=True, min_length=8)
+
+    def validate(self, attrs):
+        from django.utils.encoding import force_str
+        from django.utils.http import urlsafe_base64_decode
+        from django.contrib.auth.tokens import default_token_generator
+
+        try:
+            user_id = force_str(urlsafe_base64_decode(attrs["uid"]))
+            user = User.objects.get(pk=user_id)
+        except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+            raise serializers.ValidationError("This password reset link is invalid or expired.")
+
+        if not default_token_generator.check_token(user, attrs["token"]):
+            raise serializers.ValidationError("This password reset link is invalid or expired.")
+        if user.check_password(attrs["new_password"]):
+            raise serializers.ValidationError(
+                {"new_password": "Choose a password you have not used before."}
+            )
+        try:
+            validate_password(attrs["new_password"], user=user)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError({"new_password": exc.messages})
+
+        attrs["user"] = user
+        return attrs
+
+
+class PasswordChangeSerializer(serializers.Serializer):
+    current_password = serializers.CharField(write_only=True)
+    new_password = serializers.CharField(write_only=True, min_length=8)
+
+    def validate(self, attrs):
+        user = self.context["request"].user
+        if not user.check_password(attrs["current_password"]):
+            raise serializers.ValidationError(
+                {"current_password": "Current password is incorrect."}
+            )
+        if user.check_password(attrs["new_password"]):
+            raise serializers.ValidationError(
+                {"new_password": "Choose a password you have not used before."}
+            )
+        try:
+            validate_password(attrs["new_password"], user=user)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError({"new_password": exc.messages})
         return attrs
 
 
@@ -240,6 +577,16 @@ class SuperAdminDecisionSerializer(serializers.Serializer):
     reason = serializers.CharField(required=False, allow_blank=True, default="")
 
 
+class LoginUnlockSerializer(serializers.Serializer):
+    reason = serializers.CharField(min_length=1, max_length=500)
+
+    def validate_reason(self, value):
+        reason = value.strip()
+        if not reason:
+            raise serializers.ValidationError("Provide a reason for unlocking this account.")
+        return reason
+
+
 class PlatformSettingsUpdateSerializer(serializers.Serializer):
     """Body of PATCH /api/v1/superadmin/settings/ (every field optional)."""
 
@@ -247,6 +594,15 @@ class PlatformSettingsUpdateSerializer(serializers.Serializer):
     require_approval = serializers.BooleanField(required=False)
     announcement = serializers.CharField(required=False, allow_blank=True)
     maintenance_mode = serializers.BooleanField(required=False)
+    max_failed_login_attempts = serializers.IntegerField(
+        required=False, min_value=1, max_value=20
+    )
+    lockout_duration_minutes = serializers.IntegerField(
+        required=False, min_value=1, max_value=10080
+    )
+    text_messaging_enabled = serializers.BooleanField(required=False)
+    voice_messaging_enabled = serializers.BooleanField(required=False)
+    reason = serializers.CharField(required=False, allow_blank=True, max_length=500)
 
 
 class AnnouncementSerializer(serializers.Serializer):

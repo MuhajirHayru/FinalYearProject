@@ -33,6 +33,7 @@ from users.permissions import (
     IsUserAdmin,
     IsWholesaler,
 )
+from registrations.services import users_visible_to_admin
 
 
 def _unread_message_count(user):
@@ -293,38 +294,52 @@ class AdminDashboardView(APIView):
     permission_classes = [IsUserAdmin | IsFinancialManager]
 
     def get(self, request):
-        pending_users = User.objects.filter(status=AccountStatus.PENDING)
+        visible_users = User.objects.all()
+        if request.user.role == Role.USER_ADMIN:
+            visible_users = users_visible_to_admin(request.user, visible_users)
+        visible_ids = visible_users.values("pk")
+        pending_users = visible_users.filter(status=AccountStatus.PENDING)
         by_role = dict(
-            User.objects.filter(status=AccountStatus.APPROVED)
+            visible_users.filter(status=AccountStatus.APPROVED)
             .values_list("role")
             .annotate(c=Count("id"))
             .values_list("role", "c")
         )
+        active_listings = Product.objects.filter(owner_id__in=visible_ids)
+        orders = Order.objects.all()
+        payments = PaymentRecord.objects.all()
+        if request.user.role == Role.USER_ADMIN:
+            orders = orders.filter(
+                Q(farmer_id__in=visible_ids)
+                | Q(wholesaler_id__in=visible_ids)
+                | Q(retailer_id__in=visible_ids)
+            )
+            payments = payments.filter(
+                Q(farmer_id__in=visible_ids) | Q(submitted_by_id__in=visible_ids)
+            )
         return Response(
             {
                 "success": True,
                 "stats": {
                     "pending_users": pending_users.count(),
-                    "total_users": User.objects.count(),
-                    "active_users": User.objects.filter(
-                        status=AccountStatus.APPROVED
-                    ).count(),
+                    "total_users": visible_users.count(),
+                    "active_users": visible_users.filter(status=AccountStatus.APPROVED).count(),
                     "farmers": by_role.get(Role.FARMER, 0),
                     "wholesalers": by_role.get(Role.WHOLESALER, 0),
                     "retailers": by_role.get(Role.RETAILER, 0),
-                    "active_listings": Product.objects.filter(
+                    "active_listings": active_listings.filter(
                         status=ProductStatus.ACTIVE
                     ).count(),
-                    "pending_payments": PaymentRecord.objects.filter(
+                    "pending_payments": payments.filter(
                         status=PaymentStatus.PENDING
                     ).count(),
-                    "verified_payments": PaymentRecord.objects.filter(
+                    "verified_payments": payments.filter(
                         status=PaymentStatus.VERIFIED
                     ).count(),
-                    "flagged_payments": PaymentRecord.objects.filter(
+                    "flagged_payments": payments.filter(
                         status=PaymentStatus.FLAGGED
                     ).count(),
-                    "total_orders": Order.objects.count(),
+                    "total_orders": orders.count(),
                 },
             }
         )

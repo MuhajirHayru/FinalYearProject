@@ -150,8 +150,8 @@ export interface LoginUser {
 export interface PublicUser {
   id: string;
   full_name: string;
-  phone: string;
-  location: string;
+  phone?: string;
+  location?: string;
   role: UserRole;
   role_display: string;
   status: AccountStatus;
@@ -174,11 +174,13 @@ export interface DirectoryUser {
   status_display: string;
   rejection_reason: string;
   privacy_policy_accepted: boolean;
+  failed_login_attempts: number;
+  locked_until: string | null;
   created_at: string;
   updated_at: string;
 }
 
-/** `users/serializers.py` AdminAccount — 11 keys. */
+/** `users/serializers.py` AdminAccount response. */
 export interface AdminAccount {
   id: string;
   full_name: string;
@@ -190,13 +192,51 @@ export interface AdminAccount {
   status: AccountStatus;
   is_staff: boolean;
   created_at: string;
+  last_login: string | null;
+  scope_label?: string;
+  location_name?: string;
 }
 
-/** `users/serializers.py` AuditLog — 7 keys. */
+export interface AdminAccountActivity {
+  staff: AdminAccount & {
+    scope: string;
+    permissions: string[];
+    created_by: { id: string; name: string; email: string } | null;
+  };
+  period: { from: string; to: string };
+  statistics: {
+    actions: number;
+    approved: number;
+    rejected: number;
+    suspended: number;
+    reactivated: number;
+    staff_created: number;
+    current_scope_users: number;
+    current_scope_farmers: number;
+    current_scope_wholesalers: number;
+    current_scope_retailers: number;
+    pending_approvals_in_scope: number;
+  };
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: AuditLog[];
+}
+
+export interface AdminCreationOptions {
+  scope_types: string[];
+  can_create_top_level: boolean;
+  can_create_financial_manager: boolean;
+  scope_location_id: string | null;
+  current_scope: string;
+}
+
+/** `users/serializers.py` AuditLog response. */
 export interface AuditLog {
   id: number;
   actor: string | null;
   actor_name: string | null;
+  actor_role: string;
   action: string;
   target: string;
   detail: string;
@@ -213,6 +253,96 @@ export interface RegisterResponse {
   success: true;
   message: string;
   user: User;
+  completion_token: string;
+}
+
+export type RegistrationStatus =
+  | "DRAFT"
+  | "SUBMITTED"
+  | "CHANGES_REQUESTED"
+  | "APPROVED"
+  | "REJECTED";
+
+export interface RegistrationLocation {
+  id: string;
+  source_id: string;
+  name: string;
+  alternative_names: string[];
+  level: string;
+  level_display: string;
+  has_children: boolean;
+}
+
+export interface RegistrationProductType {
+  id: string;
+  code: string;
+  name: string;
+  category: ProductCategory;
+  category_display: string;
+}
+
+export interface RegistrationDocument {
+  id: string;
+  document_type: string;
+  original_filename: string;
+  verification_status: "PENDING" | "VERIFIED" | "REJECTED";
+  verification_note: string;
+  uploaded_at: string;
+}
+
+export interface RegistrationProductSelection {
+  id: string;
+  name: string;
+  category: ProductCategory;
+  intent: "PRODUCES" | "BUYS" | "SELLS" | "HANDLES";
+}
+
+export interface RegistrationDetails {
+  id: string;
+  user: string;
+  full_name: string;
+  email: string;
+  phone: string;
+  role: UserRole;
+  date_of_birth: string | null;
+  sex: string;
+  business_name: string;
+  business_address: string;
+  location: string | null;
+  location_name: string;
+  location_path: string[];
+  location_id_path: string[];
+  product_selections: RegistrationProductSelection[];
+  documents: RegistrationDocument[];
+  status: RegistrationStatus;
+  legacy_registration: boolean;
+  submitted_at: string | null;
+  review_history: {
+    id: string;
+    reviewer_name: string;
+    action: string;
+    reason: string;
+    created_at: string;
+  }[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdminScope {
+  id: number;
+  user: string;
+  user_name: string;
+  user_email: string;
+  account_status: AccountStatus;
+  level: "GLOBAL" | "LOCATION";
+  location: string | null;
+  location_name: string;
+  location_level: string;
+  location_path: string[];
+  scope_label: string;
+  scope_type: string;
+  user_count: number;
+  admin_count: number;
 }
 
 export interface MeResponse {
@@ -226,6 +356,10 @@ export interface PlatformSettings {
   require_approval: boolean;
   announcement: string;
   maintenance_mode: boolean;
+  max_failed_login_attempts: number;
+  lockout_duration_minutes: number;
+  text_messaging_enabled: boolean;
+  voice_messaging_enabled: boolean;
   updated_at: string | null;
   updated_by: string | null;
 }
@@ -433,6 +567,9 @@ export interface Message {
   sender_name: string;
   sender_financially_verified: boolean;
   content: string;
+  kind: "TEXT" | "VOICE";
+  audio_url: string | null;
+  moderation_status: "APPROVED" | "PENDING_REVIEW" | "BLOCKED";
   /** Note: `sent_at`, not `created_at`. */
   sent_at: string;
   is_read: boolean;
@@ -451,6 +588,8 @@ export interface ChatChannel {
     content: string;
     sender_name: string;
     sender_financially_verified: boolean;
+    kind: "TEXT" | "VOICE";
+    moderation_status: "APPROVED" | "PENDING_REVIEW" | "BLOCKED";
     sent_at: string;
   } | null;
   unread_count: number;
@@ -534,6 +673,18 @@ export interface Order {
   payment_status: string;
   payment_status_display: string;
   delivery_information: string;
+  counterparty_contact: {
+    id: string;
+    full_name: string;
+    phone?: string;
+    email?: string;
+    address?: string;
+    precise_location?: {
+      address: string;
+      latitude: string | null;
+      longitude: string | null;
+    };
+  } | null;
   delivered_at: string | null;
   quality_confirmed_at: string | null;
   dispute_reason: string;
@@ -645,14 +796,62 @@ export interface WalletPayoutRequest {
   id: string;
   wallet: string;
   wallet_owner: string;
+  wallet_owner_id: string;
+  wallet_owner_role: UserRole;
+  currency: string;
   amount: string;
   destination: string;
   payout_account: string | null;
+  payout_account_bank: string;
+  payout_account_masked: string;
+  payout_account_status: BankAccountStatus | null;
   status: "PENDING" | "PAID" | "REJECTED";
   submitted_at: string;
   reviewed_at: string | null;
+  reviewed_by_name: string | null;
   external_reference: string;
   review_notes: string;
+}
+
+export interface WalletPayoutDetail {
+  payout: WalletPayoutRequest;
+  requester: {
+    id: string;
+    name: string;
+    role: UserRole;
+    email: string;
+  };
+  wallet: {
+    currency: string;
+    available_balance: string;
+    held_balance: string;
+    requested_amount_reserved: boolean;
+  };
+  destination_review: {
+    status: string;
+    bank_name: string;
+    account_holder_name: string;
+    account_type: string;
+    masked_account_number: string;
+    requires_external_confirmation: boolean;
+  };
+  eligible_for_manual_confirmation: boolean;
+  transactions: {
+    id: string;
+    type: string;
+    amount: string;
+    reference: string;
+    external_reference: string;
+    description: string;
+    actor: string;
+    created_at: string;
+  }[];
+  history: {
+    actor: string;
+    action: string;
+    detail: string;
+    created_at: string;
+  }[];
 }
 
 export interface WalletRequestQuery {
@@ -662,6 +861,10 @@ export interface WalletRequestQuery {
   date_from?: string;
   date_to?: string;
   search?: string;
+  min_amount?: string;
+  max_amount?: string;
+  method?: "REGISTERED" | "MANUAL";
+  ordering?: "newest" | "oldest" | "amount_asc" | "amount_desc" | "status";
 }
 
 export interface WalletTransaction {

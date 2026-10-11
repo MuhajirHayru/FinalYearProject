@@ -285,7 +285,7 @@ export default function WalletPage() {
         </Card>
         <Card>
           <CardHeader title="Payout requests" />
-          {payouts.length ? <ul className="divide-y divide-gray-100">{payouts.map((request) => <li key={request.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 text-sm"><div><p className="font-medium text-gray-900">{formatEtb(request.amount)} · {request.destination}</p><p className="mt-1 text-xs text-gray-500">{formatDateTime(request.submitted_at)}{request.external_reference ? ` · ${request.external_reference}` : ""}</p></div><StatusPill value={request.status} /></li>)}</ul> : <EmptyState title="No payout requests yet" icon={<WalletIcon className="h-8 w-8" />} />}
+          {payouts.length ? <ul className="divide-y divide-gray-100">{payouts.map((request) => <li key={request.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 text-sm"><div><p className="font-medium text-gray-900">{formatEtb(request.amount)} · {request.destination}</p><p className="mt-1 text-xs text-gray-500">Payout {request.id} · Requested {formatDateTime(request.submitted_at)}{request.reviewed_at ? ` · Updated ${formatDateTime(request.reviewed_at)}` : ""}{request.external_reference ? ` · Transfer reference ${request.external_reference}` : ""}</p>{request.review_notes && <p className={`mt-1 text-xs ${request.status === "REJECTED" ? "text-red-700" : "text-gray-600"}`}>{request.status === "REJECTED" ? `Rejection reason: ${request.review_notes}` : request.review_notes}</p>}</div><StatusPill value={request.status} /></li>)}</ul> : <EmptyState title="No payout requests yet" icon={<WalletIcon className="h-8 w-8" />} />}
         </Card>
         <Card>
           <CardHeader title="Wallet transaction history" />

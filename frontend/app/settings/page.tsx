@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Save } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
 import {
@@ -8,10 +8,11 @@ import {
   Card,
   CardHeader,
   ErrorBanner,
+  Input,
   PageLoader,
   SuccessBanner,
 } from "@/components/ui";
-import { superAdminApi } from "@/lib/api/client";
+import { authApi, superAdminApi } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/context";
 import { BankAccountManager } from "@/components/payments/BankAccountManager";
 import { formatDateTime } from "@/lib/format";
@@ -23,10 +24,39 @@ import type { PlatformSettings } from "@/lib/types";
  * `/super-admin/settings`).
  */
 export default function SettingsPage() {
-  const { hasRole, user } = useAuth();
+  const { hasRole, user, logout } = useAuth();
   const [settings, setSettings] = useState<PlatformSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [passwordError, setPasswordError] = useState("");
+  const [passwordNotice, setPasswordNotice] = useState("");
+  const [passwordBusy, setPasswordBusy] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+
+  async function changePassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPasswordError("");
+    setPasswordNotice("");
+    if (newPassword !== confirmPassword) {
+      setPasswordError("The new passwords do not match.");
+      return;
+    }
+    setPasswordBusy(true);
+    try {
+      const result = await authApi.changePassword(currentPassword, newPassword);
+      setPasswordNotice(result.message);
+      window.setTimeout(async () => {
+        await logout();
+        window.location.assign("/login?password_changed=true");
+      }, 1200);
+    } catch (err) {
+      setPasswordError(err instanceof Error ? err.message : "Could not update your password.");
+    } finally {
+      setPasswordBusy(false);
+    }
+  }
 
   useEffect(() => {
     if (!user || !["SUPER_ADMIN", "FINANCIAL_MANAGER", "USER_ADMIN"].includes(user.role)) {
@@ -138,17 +168,49 @@ export default function SettingsPage() {
         </Card>}
 
         {user && <Card>
-          <CardHeader
-            title="Your account"
-            subtitle="Sign-in identity and role are controlled by a User Admin"
-          />
-          <div className="p-5 text-sm text-gray-600">
-            <p>
-              To change your password or deactivate your account, contact a User
-              Admin. Every privileged action on the platform is recorded in the
-              audit log.
+          <CardHeader title="Your account" subtitle="Change your password securely" />
+          <form onSubmit={(event) => void changePassword(event)} className="space-y-4 p-5">
+            <p className="text-sm text-gray-600">
+              After a successful change, all existing sign-in sessions will be revoked.
             </p>
-          </div>
+            {passwordError && <ErrorBanner message={passwordError} />}
+            {passwordNotice && <SuccessBanner message={passwordNotice} />}
+            <label className="block text-sm font-medium text-gray-700">
+              Current password
+              <Input
+                type="password"
+                autoComplete="current-password"
+                value={currentPassword}
+                onChange={(event) => setCurrentPassword(event.target.value)}
+                required
+              />
+            </label>
+            <label className="block text-sm font-medium text-gray-700">
+              New password
+              <Input
+                type="password"
+                autoComplete="new-password"
+                minLength={8}
+                value={newPassword}
+                onChange={(event) => setNewPassword(event.target.value)}
+                required
+              />
+            </label>
+            <label className="block text-sm font-medium text-gray-700">
+              Confirm new password
+              <Input
+                type="password"
+                autoComplete="new-password"
+                minLength={8}
+                value={confirmPassword}
+                onChange={(event) => setConfirmPassword(event.target.value)}
+                required
+              />
+            </label>
+            <Button type="submit" loading={passwordBusy}>
+              Update password
+            </Button>
+          </form>
         </Card>}
       </div>
     </AppShell>

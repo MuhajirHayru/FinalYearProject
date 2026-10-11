@@ -60,6 +60,8 @@ export function UserDirectory({
   const [search, setSearch] = useState("");
   const [role, setRole] = useState("");
   const [status, setStatus] = useState(mode === "approvals" ? "PENDING" : "ALL");
+  const [createdFrom, setCreatedFrom] = useState("");
+  const [createdTo, setCreatedTo] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [busyId, setBusyId] = useState("");
@@ -77,6 +79,9 @@ export function UserDirectory({
         search: search || undefined,
         role: role || undefined,
         status: status === "ALL" ? undefined : status,
+        created_from:
+          mode === "approvals" && createdFrom ? createdFrom : undefined,
+        created_to: mode === "approvals" && createdTo ? createdTo : undefined,
       };
       const res =
         mode === "approvals"
@@ -89,7 +94,7 @@ export function UserDirectory({
     } finally {
       setLoading(false);
     }
-  }, [mode, page, search, role, status]);
+  }, [mode, page, search, role, status, createdFrom, createdTo]);
 
   useEffect(() => {
     void load();
@@ -168,6 +173,31 @@ export function UserDirectory({
               aria-label="Search users"
             />
           </div>
+
+          {isApprovals && (
+            <>
+              <Input
+                type="date"
+                value={createdFrom}
+                onChange={(e) => {
+                  setCreatedFrom(e.target.value);
+                  setPage(1);
+                }}
+                className="h-10 w-40"
+                aria-label="Created from"
+              />
+              <Input
+                type="date"
+                value={createdTo}
+                onChange={(e) => {
+                  setCreatedTo(e.target.value);
+                  setPage(1);
+                }}
+                className="h-10 w-40"
+                aria-label="Created to"
+              />
+            </>
+          )}
 
           <Select
             value={role}

@@ -13,6 +13,8 @@ from .settings import *  # noqa: F401,F403
 PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 
 MEDIA_ROOT = tempfile.mkdtemp(prefix="greenpath-test-media-")
+REGISTRATION_PRIVATE_MEDIA_ROOT = tempfile.mkdtemp(prefix="greenpath-test-private-media-")
+CHAT_PRIVATE_MEDIA_ROOT = tempfile.mkdtemp(prefix="greenpath-test-private-chat-")
 
 # Keep the real-time layer fully in-process during tests.
 CHANNEL_LAYERS = {

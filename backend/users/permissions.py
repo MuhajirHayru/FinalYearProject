@@ -89,7 +89,14 @@ class CanStartConversation(permissions.BasePermission):
     body, so it is deferred to the view which has the full queryset context.
     """
 
-    allowed_roles = ("FARMER", "WHOLESALER", "RETAILER", "USER_ADMIN", "FINANCIAL_MANAGER")
+    allowed_roles = (
+        "FARMER",
+        "WHOLESALER",
+        "RETAILER",
+        "USER_ADMIN",
+        "FINANCIAL_MANAGER",
+        "SUPER_ADMIN",
+    )
 
     def has_permission(self, request, view):
         user = request.user

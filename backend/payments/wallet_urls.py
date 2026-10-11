@@ -13,6 +13,7 @@ from .views import (
     ReviewListCreateView,
     WalletFundingRequestListCreateView,
     WalletFundingReviewView,
+    WalletPayoutDetailView,
     WalletPayoutRequestListCreateView,
     WalletPayoutReviewView,
     WalletTransactionListView,
@@ -53,6 +54,11 @@ urlpatterns = [
         name="chapa_funding_verify",
     ),
     path("payouts/", WalletPayoutRequestListCreateView.as_view(), name="wallet_payouts"),
+    path(
+        "payouts/<uuid:pk>/",
+        WalletPayoutDetailView.as_view(),
+        name="wallet_payout_detail",
+    ),
     path(
         "payouts/<uuid:pk>/review/",
         WalletPayoutReviewView.as_view(),

@@ -81,6 +81,9 @@ class User(AbstractBaseUser, PermissionsMixin):
     updated_at = models.DateTimeField(auto_now=True)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
+    failed_login_attempts = models.PositiveSmallIntegerField(default=0)
+    locked_until = models.DateTimeField(null=True, blank=True)
+    password_changed_at = models.DateTimeField(null=True, blank=True)
 
     objects = UserManager()
 
@@ -153,12 +156,12 @@ class User(AbstractBaseUser, PermissionsMixin):
         self._audit(actor, "user_rejected", self.rejection_reason)
         return self
 
-    def suspend(self, actor=None):
+    def suspend(self, actor=None, reason=""):
         """APPROVED -> SUSPENDED."""
         self.status = AccountStatus.SUSPENDED
         self.is_active = False
         self.save(update_fields=["status", "is_active", "updated_at"])
-        self._audit(actor, "user_suspended")
+        self._audit(actor, "user_suspended", (reason or "").strip())
         return self
 
     def reinstate(self, actor=None):
@@ -213,6 +216,19 @@ class PlatformSettings(models.Model):
         help_text="Platform-wide announcement shown to every user.",
     )
     maintenance_mode = models.BooleanField(default=False)
+    max_failed_login_attempts = models.PositiveSmallIntegerField(
+        default=3,
+        help_text="Consecutive invalid passwords before a temporary lockout.",
+    )
+    lockout_duration_minutes = models.PositiveIntegerField(
+        default=180,
+        help_text=(
+            "Duration applied to new lockouts. Existing lockouts expire at their "
+            "recorded locked_until time."
+        ),
+    )
+    text_messaging_enabled = models.BooleanField(default=True)
+    voice_messaging_enabled = models.BooleanField(default=True)
     updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
         related_name="settings_updates",

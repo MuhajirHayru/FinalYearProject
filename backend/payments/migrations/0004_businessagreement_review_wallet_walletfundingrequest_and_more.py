@@ -231,7 +231,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AddConstraint(
             model_name='review',
-            constraint=models.CheckConstraint(condition=models.Q(('rating__gte', 1), ('rating__lte', 5)), name='review_rating_1_to_5'),
+            constraint=models.CheckConstraint(check=models.Q(('rating__gte', 1), ('rating__lte', 5)), name='review_rating_1_to_5'),
         ),
         migrations.AddConstraint(
             model_name='walletfundingrequest',

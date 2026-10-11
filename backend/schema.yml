@@ -2211,7 +2211,8 @@ paths:
   /api/v1/superadmin/audit/:
     get:
       operationId: v1_superadmin_audit_list
-      description: GET /api/v1/superadmin/audit/ — Super Admin decision trail (FR-SA-03).
+      description: Scope-filtered administrator activity log with optional actor, action,
+        target, date, location, registration, and license filters.
       parameters:
       - name: page
         required: false
@@ -2219,6 +2220,73 @@ paths:
         description: A page number within the paginated result set.
         schema:
           type: integer
+      - name: administrator
+        required: false
+        in: query
+        description: Match an administrator name or email.
+        schema:
+          type: string
+      - name: role
+        required: false
+        in: query
+        description: Filter by the actor's role.
+        schema:
+          type: string
+      - name: action
+        required: false
+        in: query
+        description: Case-insensitive action substring.
+        schema:
+          type: string
+      - name: target
+        required: false
+        in: query
+        description: Case-insensitive target substring.
+        schema:
+          type: string
+      - name: from
+        required: false
+        in: query
+        description: Include activity on or after this ISO date.
+        schema:
+          type: string
+          format: date
+      - name: to
+        required: false
+        in: query
+        description: Include activity on or before this ISO date.
+        schema:
+          type: string
+          format: date
+      - name: location_id
+        required: false
+        in: query
+        description: Filter activity associated with this location and descendants.
+        schema:
+          type: string
+          format: uuid
+      - name: registration_status
+        required: false
+        in: query
+        description: Filter activity targeting users with this registration status.
+        schema:
+          type: string
+          enum:
+          - DRAFT
+          - SUBMITTED
+          - CHANGES_REQUESTED
+          - APPROVED
+          - REJECTED
+      - name: license_status
+        required: false
+        in: query
+        description: Filter activity targeting users with a document in this status.
+        schema:
+          type: string
+          enum:
+          - PENDING
+          - VERIFIED
+          - REJECTED
       tags:
       - v1
       security:
@@ -2424,6 +2492,9 @@ components:
           readOnly: true
           nullable: true
         actor_name:
+          type: string
+          readOnly: true
+        actor_role:
           type: string
           readOnly: true
         action:

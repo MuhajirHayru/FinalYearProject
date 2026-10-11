@@ -1,11 +1,17 @@
 """Super Admin governance and auth/profile tests (FR-SA-01..05, FR-UA-*, UC-01, UC-02)."""
 import uuid
+from datetime import timedelta
+from urllib.parse import parse_qs, urlparse
 
 import pytest
+from django.core import mail
 from django.conf import settings
+from django.utils import timezone
+from django.test import override_settings
 
 from notifications.models import Notification
 from payments.models import PaymentStatus
+from registrations.models import RegistrationStatus, UserRegistration
 from users.models import AccountStatus, AuditLog, PlatformSettings, Role, User
 
 pytestmark = pytest.mark.django_db
@@ -28,7 +34,7 @@ def _payload(**overrides):
 # ---------------------------------------------------------------------------
 # Registration (UC-01)
 # ---------------------------------------------------------------------------
-def test_registration_creates_a_pending_account(api, user_admin):
+def test_registration_creates_a_pending_account_and_completion_draft(api, user_admin):
     response = api.post("/api/v1/auth/register/", _payload(), format="json")
     assert response.status_code == 201, response.data
     user = User.objects.get(email="newfarmer@test.et")
@@ -36,7 +42,9 @@ def test_registration_creates_a_pending_account(api, user_admin):
     assert user.is_active is False
     assert user.role == Role.FARMER
     assert user.privacy_policy_accepted is True
-    assert Notification.objects.filter(type="REGISTRATION", recipient=user_admin).exists()
+    assert response.data["completion_token"]
+    assert UserRegistration.objects.get(user=user).status == RegistrationStatus.DRAFT
+    assert not Notification.objects.filter(type="REGISTRATION", recipient=user_admin).exists()
 
 
 def test_registration_requires_privacy_acceptance(api):
@@ -114,6 +122,249 @@ def test_login_rejects_a_wrong_password(api, farmer):
         format="json",
     )
     assert response.status_code == 400
+    assert response.data["attempts_remaining"] == 2
+    assert response.data["max_attempts"] == 3
+    farmer.refresh_from_db()
+    assert farmer.failed_login_attempts == 1
+
+
+def test_login_locks_after_configured_consecutive_failures(api, farmer):
+    policy = PlatformSettings.load()
+    policy.max_failed_login_attempts = 3
+    policy.lockout_duration_minutes = 180
+    policy.save()
+
+    for _ in range(3):
+        response = api.post(
+            "/api/v1/auth/login/",
+            {"email": farmer.email, "password": "incorrect"},
+            format="json",
+        )
+        assert response.status_code == 400
+
+    farmer.refresh_from_db()
+    assert farmer.failed_login_attempts == 0
+    assert farmer.locked_until is not None
+    assert farmer.locked_until > timezone.now() + timedelta(minutes=179)
+    assert AuditLog.objects.filter(
+        action="account_login_locked", target=str(farmer.pk)
+    ).exists()
+
+    locked = api.post(
+        "/api/v1/auth/login/",
+        {"email": farmer.email, "password": "incorrect"},
+        format="json",
+    )
+    assert locked.status_code == 400
+    assert "temporarily locked" in str(locked.data).lower()
+    assert locked.data["attempts_remaining"] == 0
+    assert locked.data["retry_after_seconds"] > 0
+
+
+def test_login_uses_latest_lockout_policy(api, farmer, super_admin):
+    api.force_authenticate(user=super_admin)
+    saved = api.patch(
+        "/api/v1/superadmin/settings/",
+        {
+            "max_failed_login_attempts": 2,
+            "lockout_duration_minutes": 30,
+            "reason": "Reduce account takeover risk",
+        },
+        format="json",
+    )
+    assert saved.status_code == 200, saved.data
+
+    api.force_authenticate(user=None)
+    first_attempt = api.post(
+        "/api/v1/auth/login/",
+        {"email": farmer.email, "password": "incorrect"},
+        format="json",
+    )
+    assert first_attempt.data["attempts_remaining"] == 1
+    second_attempt = api.post(
+            "/api/v1/auth/login/",
+            {"email": farmer.email, "password": "incorrect"},
+            format="json",
+        )
+    assert second_attempt.data["attempts_remaining"] == 0
+    assert second_attempt.data["retry_after_seconds"] > 0
+
+    farmer.refresh_from_db()
+    assert farmer.locked_until is not None
+    assert farmer.locked_until > timezone.now() + timedelta(minutes=29)
+
+
+def test_successful_login_resets_failed_attempt_counter(api, farmer):
+    api.post(
+        "/api/v1/auth/login/",
+        {"email": farmer.email, "password": "incorrect"},
+        format="json",
+    )
+    farmer.refresh_from_db()
+    assert farmer.failed_login_attempts == 1
+
+    response = api.post(
+        "/api/v1/auth/login/",
+        {"email": farmer.email, "password": "demo1234"},
+        format="json",
+    )
+    assert response.status_code == 200
+    farmer.refresh_from_db()
+    assert farmer.failed_login_attempts == 0
+    assert farmer.locked_until is None
+
+
+def test_super_admin_can_unlock_account_and_audit_reason(api, farmer, super_admin):
+    farmer.failed_login_attempts = 3
+    farmer.locked_until = timezone.now() + timedelta(hours=3)
+    farmer.save(update_fields=["failed_login_attempts", "locked_until"])
+    api.force_authenticate(user=super_admin)
+
+    response = api.post(
+        f"/api/v1/superadmin/users/{farmer.pk}/unlock-login/",
+        {"reason": "Verified the account holder by phone"},
+        format="json",
+    )
+
+    assert response.status_code == 200, response.data
+    farmer.refresh_from_db()
+    assert farmer.failed_login_attempts == 0
+    assert farmer.locked_until is None
+    audit = AuditLog.objects.get(
+        action="account_login_unlocked",
+        target=str(farmer.pk),
+    )
+    assert "Verified the account holder by phone" in audit.detail
+
+
+def test_login_unlock_requires_reason_and_active_lock(api, farmer, super_admin):
+    api.force_authenticate(user=super_admin)
+    missing_reason = api.post(
+        f"/api/v1/superadmin/users/{farmer.pk}/unlock-login/",
+        {},
+        format="json",
+    )
+    assert missing_reason.status_code == 400
+
+    response = api.post(
+        f"/api/v1/superadmin/users/{farmer.pk}/unlock-login/",
+        {"reason": "No active lock"},
+        format="json",
+    )
+    assert response.status_code == 409
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+def test_password_reset_email_is_generic_and_one_time(api, farmer):
+    request = api.post(
+        "/api/v1/auth/password-reset/request/",
+        {"channel": "email", "identifier": farmer.email},
+        format="json",
+    )
+    assert request.status_code == 202
+    assert "if an account matches" in request.data["message"].lower()
+    assert len(mail.outbox) == 1
+    reset_url = next(
+        part
+        for part in mail.outbox[0].body.split()
+        if "/reset-password?" in part
+    )
+    query = parse_qs(urlparse(reset_url).query)
+
+    response = api.post(
+        "/api/v1/auth/password-reset/confirm/",
+        {
+            "uid": query["uid"][0],
+            "token": query["token"][0],
+            "new_password": "New-Secure-Password!42",
+        },
+        format="json",
+    )
+    assert response.status_code == 200, response.data
+    farmer.refresh_from_db()
+    assert farmer.check_password("New-Secure-Password!42")
+    assert farmer.password_changed_at is not None
+    assert AuditLog.objects.filter(
+        action="password_reset_completed", target=str(farmer.pk)
+    ).exists()
+
+    reused = api.post(
+        "/api/v1/auth/password-reset/confirm/",
+        {
+            "uid": query["uid"][0],
+            "token": query["token"][0],
+            "new_password": "Another-Secure-Password!42",
+        },
+        format="json",
+    )
+    assert reused.status_code == 400
+
+
+def test_password_reset_does_not_disclose_unknown_accounts(api):
+    response = api.post(
+        "/api/v1/auth/password-reset/request/",
+        {"channel": "email", "identifier": "missing@example.et"},
+        format="json",
+    )
+    assert response.status_code == 202
+    assert "if an account matches" in response.data["message"].lower()
+
+
+def test_password_reset_sms_uses_on_file_number(api, farmer, monkeypatch):
+    farmer.phone = "+251911000001"
+    farmer.save(update_fields=["phone"])
+    delivered = []
+
+    def capture_delivery(user, channel, reset_url):
+        delivered.append((user.pk, channel, reset_url))
+
+    monkeypatch.setattr("users.views.send_password_reset", capture_delivery)
+    response = api.post(
+        "/api/v1/auth/password-reset/request/",
+        {"channel": "sms", "identifier": farmer.phone},
+        format="json",
+    )
+
+    assert response.status_code == 202
+    assert delivered and delivered[0][0] == farmer.pk
+    assert delivered[0][1] == "sms"
+    assert "/reset-password?" in delivered[0][2]
+
+
+def test_password_change_revokes_existing_access_and_refresh_tokens(api, farmer):
+    login = api.post(
+        "/api/v1/auth/login/",
+        {"email": farmer.email, "password": "demo1234"},
+        format="json",
+    )
+    old_access = login.data["access"]
+    old_refresh = login.cookies[settings.REFRESH_COOKIE_KEY].value
+
+    api.force_authenticate(user=None)
+    api.credentials(HTTP_AUTHORIZATION=f"Bearer {old_access}")
+    changed = api.post(
+        "/api/v1/auth/password/change/",
+        {
+            "current_password": "demo1234",
+            "new_password": "Changed-Secure-Password!42",
+        },
+        format="json",
+    )
+    assert changed.status_code == 200, changed.data
+
+    denied_access = api.get("/api/v1/auth/me/")
+    assert denied_access.status_code == 401
+    api.credentials()
+    api.cookies[settings.REFRESH_COOKIE_KEY] = old_refresh
+    denied_refresh = api.post("/api/v1/auth/token/refresh/", {}, format="json")
+    assert denied_refresh.status_code == 401
+
+    new_login = api.post(
+        "/api/v1/auth/login/",
+        {"email": farmer.email, "password": "Changed-Secure-Password!42"},
+        format="json",
+    )
+    assert new_login.status_code == 200, new_login.data
 
 
 def test_pending_user_cannot_log_in(api, pending_user):
@@ -420,6 +671,45 @@ def test_audit_log_lists_super_admin_decisions(api, super_admin, pending_user):
     assert response.data["results"][0]["action"] == "user_decision_overridden"
     assert response.data["results"][0]["actor"] == super_admin.id
     assert response.data["results"][0]["actor_name"] == super_admin.full_name
+    assert response.data["results"][0]["actor_role"] == Role.SUPER_ADMIN
+
+
+def test_audit_log_filters_registration_status(api, super_admin, pending_user):
+    UserRegistration.objects.create(
+        user=pending_user,
+        status=RegistrationStatus.SUBMITTED,
+    )
+    AuditLog.objects.create(
+        actor=super_admin,
+        action="registration_reviewed",
+        target=pending_user.email,
+    )
+    AuditLog.objects.create(
+        actor=super_admin,
+        action="platform_settings_updated",
+        target="platform",
+    )
+
+    api.force_authenticate(user=super_admin)
+    response = api.get(
+        "/api/v1/superadmin/audit/",
+        {"registration_status": RegistrationStatus.SUBMITTED},
+    )
+
+    assert response.status_code == 200
+    assert response.data["count"] == 1
+    assert response.data["results"][0]["target"] == pending_user.email
+
+
+def test_audit_log_rejects_invalid_filter_values(api, super_admin):
+    api.force_authenticate(user=super_admin)
+    response = api.get(
+        "/api/v1/superadmin/audit/",
+        {"registration_status": "UNKNOWN"},
+    )
+
+    assert response.status_code == 400
+    assert "registration_status" in response.data["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -427,10 +717,17 @@ def test_audit_log_lists_super_admin_decisions(api, super_admin, pending_user):
 # ---------------------------------------------------------------------------
 def test_settings_round_trip(api, super_admin):
     api.force_authenticate(user=super_admin)
-    assert api.get("/api/v1/superadmin/settings/").data["settings"]["maintenance_mode"] is False
+    current = api.get("/api/v1/superadmin/settings/").data["settings"]
+    assert current["maintenance_mode"] is False
+    assert current["max_failed_login_attempts"] == 3
+    assert current["lockout_duration_minutes"] == 180
     response = api.patch(
         "/api/v1/superadmin/settings/",
-        {"maintenance_mode": True, "require_approval": False},
+        {
+            "maintenance_mode": True,
+            "require_approval": False,
+            "reason": "Scheduled infrastructure maintenance",
+        },
         format="json",
     )
     assert response.status_code == 200
@@ -439,6 +736,30 @@ def test_settings_round_trip(api, super_admin):
     assert config.maintenance_mode is True
     assert config.updated_by == super_admin
     assert AuditLog.objects.filter(action="platform_settings_updated").exists()
+    entry = AuditLog.objects.get(action="platform_settings_updated")
+    assert '"previous"' in entry.detail
+    assert "Scheduled infrastructure maintenance" in entry.detail
+
+
+def test_security_settings_require_reason_and_validate_ranges(api, super_admin):
+    api.force_authenticate(user=super_admin)
+    missing_reason = api.patch(
+        "/api/v1/superadmin/settings/",
+        {"max_failed_login_attempts": 5},
+        format="json",
+    )
+    assert missing_reason.status_code == 400
+    assert "reason" in missing_reason.data["error"]
+
+    invalid = api.patch(
+        "/api/v1/superadmin/settings/",
+        {
+            "lockout_duration_minutes": 10081,
+            "reason": "Invalid test",
+        },
+        format="json",
+    )
+    assert invalid.status_code == 400
 
 
 def test_settings_patch_without_fields_is_rejected(api, super_admin):

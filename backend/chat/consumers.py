@@ -28,6 +28,9 @@ from greenpath.realtime import (
 )
 from notifications.models import Notification
 
+from .access import can_access_channel
+from greenpath.privacy import contains_restricted_content, restricted_content_message
+
 
 class SafeJsonConsumer(AsyncJsonWebsocketConsumer):
     """``AsyncJsonWebsocketConsumer`` that can serialise model values.
@@ -44,6 +47,22 @@ class SafeJsonConsumer(AsyncJsonWebsocketConsumer):
 
 class _AuthenticatedConsumer(SafeJsonConsumer):
     """Shared handshake guard: reject unauthenticated sockets before accept."""
+
+    @database_sync_to_async
+    def _account_is_active(self):
+        from users.models import AccountStatus, User
+
+        return User.objects.filter(
+            pk=self.user.pk,
+            status=AccountStatus.APPROVED,
+            is_active=True,
+        ).exists()
+
+    async def _ensure_active(self):
+        if await self._account_is_active():
+            return True
+        await self.close(code=4401)
+        return False
 
     async def _authenticate(self):
         user = self.scope.get("user")
@@ -65,6 +84,8 @@ class ChatConsumer(_AuthenticatedConsumer):
         self.user = await self._authenticate()
         if self.user is None:
             return
+        if not await self._ensure_active():
+            return
 
         self.channel_id = str(self.scope["url_route"]["kwargs"]["channel_id"])
         if not await self._is_participant(self.user, self.channel_id):
@@ -79,9 +100,16 @@ class ChatConsumer(_AuthenticatedConsumer):
     def _is_participant(self, user, channel_id):
         from .models import ChatChannel
 
-        return ChatChannel.objects.filter(id=channel_id, participants=user).exists()
+        channel = (
+            ChatChannel.objects.filter(id=channel_id, participants=user)
+            .prefetch_related("participants")
+            .first()
+        )
+        return channel is not None and can_access_channel(user, channel)
 
     async def receive_json(self, content, **kwargs):
+        if not await self._ensure_active():
+            return
         # Accept both the `action` ("message"/"typing"/"read") and the `type`
         # ("chat.message"/"chat.typing") spelling so a client can echo back the
         # envelope it receives.
@@ -93,8 +121,24 @@ class ChatConsumer(_AuthenticatedConsumer):
         }.get(action, action)
 
         if action == "message":
+            if not await self._text_messaging_enabled():
+                await self.send_json(
+                    {
+                        "type": "chat.error",
+                        "error": "Messaging is temporarily unavailable.",
+                    }
+                )
+                return
             text = (content.get("content") or content.get("body") or "").strip()
             if not text:
+                return
+            if contains_restricted_content(text):
+                await self.send_json(
+                    {
+                        "type": "chat.error",
+                        "error": restricted_content_message(),
+                    }
+                )
                 return
             message = await self._persist(text)
             if message is None:
@@ -136,10 +180,12 @@ class ChatConsumer(_AuthenticatedConsumer):
         from .models import ChatChannel, Message
         from .serializers import MessageSerializer
 
-        channel = ChatChannel.objects.filter(
-            id=self.channel_id, participants=self.user
-        ).first()
-        if channel is None:
+        channel = (
+            ChatChannel.objects.filter(id=self.channel_id, participants=self.user)
+            .prefetch_related("participants")
+            .first()
+        )
+        if channel is None or not can_access_channel(self.user, channel):
             return None
         message = Message.objects.create(
             channel=channel, sender=self.user, content=text
@@ -147,6 +193,12 @@ class ChatConsumer(_AuthenticatedConsumer):
         channel.last_message_at = timezone.now()
         channel.save(update_fields=["last_message_at"])
         return MessageSerializer(message).data
+
+    @database_sync_to_async
+    def _text_messaging_enabled(self):
+        from users.models import PlatformSettings
+
+        return PlatformSettings.load().text_messaging_enabled
 
     @database_sync_to_async
     def _mark_read(self):
@@ -157,9 +209,13 @@ class ChatConsumer(_AuthenticatedConsumer):
         ).exclude(sender=self.user).update(is_read=True)
 
     async def chat_event(self, event):
+        if not await self._ensure_active():
+            return
         await self.send_json(event.get("payload", event))
 
     async def chat_message(self, event):
+        if not await self._ensure_active():
+            return
         await self.send_json(event.get("payload", event))
 
 
@@ -169,6 +225,8 @@ class NotificationConsumer(_AuthenticatedConsumer):
     async def connect(self):
         self.user = await self._authenticate()
         if self.user is None:
+            return
+        if not await self._ensure_active():
             return
 
         self.group_name = notification_group(self.user.pk)
@@ -188,6 +246,8 @@ class NotificationConsumer(_AuthenticatedConsumer):
         ).count()
 
     async def receive_json(self, content, **kwargs):
+        if not await self._ensure_active():
+            return
         # Accept both the `action` and the `type` spelling so the client can
         # echo back the same envelope it receives from the server.
         action = content.get("action") or content.get("type")
@@ -202,18 +262,30 @@ class NotificationConsumer(_AuthenticatedConsumer):
         ).update(is_read=True)
 
     async def notify_event(self, event):
+        if not await self._ensure_active():
+            return
         await self.send_json(event.get("payload", event))
 
     async def notify_notification(self, event):
+        if not await self._ensure_active():
+            return
         await self.send_json(event.get("payload", event))
 
 
 class PresenceConsumer(_AuthenticatedConsumer):
     """Heartbeat lease for a single authenticated marketplace connection."""
 
+    async def _ensure_active(self):
+        active = await super()._ensure_active()
+        if not active and hasattr(self, "presence_session_id"):
+            await self._deactivate_presence()
+        return active
+
     async def connect(self):
         self.user = await self._authenticate()
         if self.user is None:
+            return
+        if not await self._ensure_active():
             return
 
         from users.models import Role
@@ -295,6 +367,8 @@ class PresenceConsumer(_AuthenticatedConsumer):
             push_presence_event(self.user.role, self.user.pk, False)
 
     async def receive_json(self, content, **kwargs):
+        if not await self._ensure_active():
+            return
         action = content.get("action") or content.get("type")
         if action not in ("heartbeat", "presence.heartbeat"):
             return
@@ -327,6 +401,8 @@ class PresenceConsumer(_AuthenticatedConsumer):
             await self.channel_layer.group_discard(group, self.channel_name)
 
     async def presence_event(self, event):
+        if not await self._ensure_active():
+            return
         await self.send_json(
             {
                 "type": "presence.changed",

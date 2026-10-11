@@ -4,7 +4,10 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CheckCircle, Leaf, Store, Warehouse } from "lucide-react";
-import { authApi } from "@/lib/api/client";
+import {
+  authApi,
+  setRegistrationCompletionToken,
+} from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/context";
 import {
   Button,
@@ -40,7 +43,6 @@ interface Form {
   full_name: string;
   email: string;
   phone: string;
-  location: string;
   role: string;
   password: string;
   password_confirm: string;
@@ -51,7 +53,6 @@ const EMPTY: Form = {
   full_name: "",
   email: "",
   phone: "",
-  location: "",
   role: "FARMER",
   password: "",
   password_confirm: "",
@@ -96,7 +97,6 @@ export default function RegisterPage() {
       errs.password = "Password must be at least 8 characters.";
     if (form.password !== form.password_confirm)
       errs.password_confirm = "Passwords do not match.";
-    if (!form.location.trim()) errs.location = "Location is required.";
     if (!form.privacy_policy_accepted)
       errs.privacy_policy_accepted = "You must accept the privacy policy.";
     setFieldErrors(errs);
@@ -110,16 +110,16 @@ export default function RegisterPage() {
 
     setBusy(true);
     try {
-      await authApi.register({
+      const result = await authApi.register({
         full_name: form.full_name.trim(),
         email: form.email.trim(),
         password: form.password,
         role: form.role,
         privacy_policy_accepted: form.privacy_policy_accepted,
         phone: form.phone.trim() || undefined,
-        location: form.location.trim(),
       });
-      router.push("/login?registered=true");
+      setRegistrationCompletionToken(result.completion_token);
+      router.push("/complete-registration");
     } catch (err) {
       // Reuse the same field-map shape the backend returns.
       if (err && typeof err === "object" && "payload" in err) {
@@ -262,19 +262,6 @@ export default function RegisterPage() {
                 />
               </Field>
 
-              <Field
-                label="Location"
-                htmlFor="location"
-                error={fieldErrors.location}
-                hint="Used for proximity ranking. City or woreda is enough."
-              >
-                <Input
-                  id="location"
-                  value={form.location}
-                  onChange={(e) => set("location", e.target.value)}
-                  placeholder="Adama"
-                />
-              </Field>
             </div>
 
             <div className="grid gap-5 sm:grid-cols-2">
@@ -349,5 +336,3 @@ export default function RegisterPage() {
     </div>
   );
 }
-
-

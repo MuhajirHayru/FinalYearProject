@@ -106,6 +106,18 @@ def test_payout_reservation_is_returned_when_finance_rejects(
     assert wallet.available_balance == Decimal("375.00")
     assert wallet.held_balance == Decimal("125.00")
 
+    duplicate_submission = api.post(
+        "/api/v1/wallet/payouts/",
+        {"amount": "125.00", "destination": "Telebirr 0911000000"},
+        format="json",
+        HTTP_IDEMPOTENCY_KEY="payout-test-key",
+    )
+    assert duplicate_submission.status_code == 200, duplicate_submission.data
+    assert duplicate_submission.data["id"] == payout_id
+    wallet.refresh_from_db()
+    assert wallet.available_balance == Decimal("375.00")
+    assert wallet.held_balance == Decimal("125.00")
+
     api.force_authenticate(user=financial_manager)
     reviewed = api.post(
         f"/api/v1/wallet/payouts/{payout_id}/review/",

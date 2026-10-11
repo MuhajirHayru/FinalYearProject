@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { MessageSquare, Search, Send, Wifi, WifiOff } from "lucide-react";
+import { Mic, MessageSquare, Search, Send, Square, Wifi, WifiOff, X } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
 import { FinanciallyVerifiedBadge } from "@/components/users/FinanciallyVerifiedBadge";
 import {
@@ -12,6 +12,8 @@ import {
   Card,
   EmptyState,
   ErrorBanner,
+  Field,
+  Input,
   PageLoader,
   Spinner,
   StatusPill,
@@ -55,11 +57,27 @@ function ChatView() {
   const [error, setError] = useState("");
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [voiceBlob, setVoiceBlob] = useState<Blob | null>(null);
+  const [voicePreviewUrl, setVoicePreviewUrl] = useState("");
+  const [voiceUploading, setVoiceUploading] = useState(false);
+  const [voiceQueue, setVoiceQueue] = useState<Message[]>([]);
+  const [moderationReasons, setModerationReasons] = useState<Record<string, string>>({});
+  const [moderationBusyId, setModerationBusyId] = useState("");
+  const [audioUrls, setAudioUrls] = useState<Record<string, string>>({});
+  const [notice, setNotice] = useState("");
   const [query, setQuery] = useState("");
   const [socket, setSocket] = useState<SocketState>("connecting");
   const [peerTyping, setPeerTyping] = useState(false);
 
   const socketRef = useRef<WebSocket | null>(null);
+  const pendingDraftRef = useRef("");
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const recordingChunksRef = useRef<Blob[]>([]);
+  const cancelledRecordingRef = useRef(false);
+  const audioUrlsRef = useRef<Record<string, string>>({});
+  const voicePreviewRef = useRef("");
   const retriesRef = useRef(0);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
@@ -85,10 +103,29 @@ function ChatView() {
     }
   }, [requestedChannel]);
 
+  const loadVoiceQueue = useCallback(async () => {
+    try {
+      const response = await chatApi.pendingVoiceMessages();
+      setVoiceQueue(response.results);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load voice reviews.");
+    }
+  }, []);
+
   useEffect(() => {
     if (!user) return;
     void loadChannels();
   }, [user, loadChannels]);
+
+  useEffect(() => {
+    if (
+      user?.role === "USER_ADMIN" ||
+      user?.role === "FINANCIAL_MANAGER" ||
+      user?.role === "SUPER_ADMIN"
+    ) {
+      void loadVoiceQueue();
+    }
+  }, [user, loadVoiceQueue]);
 
   const loadMessages = useCallback(async (id: string) => {
     setError("");
@@ -158,13 +195,20 @@ function ChatView() {
 
       ws.onmessage = (evt) => {
         if (disposed) return;
-        let data: { type?: string; message?: Message; user?: string; is_typing?: boolean };
+        let data: {
+          type?: string;
+          message?: Message;
+          user?: string;
+          is_typing?: boolean;
+          error?: string;
+        };
         try {
           data = JSON.parse(evt.data as string);
         } catch {
           return;
         }
         if (data.type === "chat.message" && data.message) {
+          if (data.message.sender === myId) pendingDraftRef.current = "";
           setMessages((prev) =>
             prev.some((m) => m.id === data.message!.id) ? prev : [...prev, data.message!]
           );
@@ -174,6 +218,12 @@ function ChatView() {
           }
         } else if (data.type === "chat.typing") {
           setPeerTyping(Boolean(data.is_typing) && data.user !== myName);
+        } else if (data.type === "chat.error") {
+          setError(data.error || "Message could not be sent.");
+          if (pendingDraftRef.current) {
+            setDraft(pendingDraftRef.current);
+            pendingDraftRef.current = "";
+          }
         }
       };
 
@@ -209,6 +259,9 @@ function ChatView() {
   useEffect(
     () => () => {
       if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+      Object.values(audioUrlsRef.current).forEach((url) => URL.revokeObjectURL(url));
+      if (voicePreviewRef.current) URL.revokeObjectURL(voicePreviewRef.current);
+      mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
     },
     []
   );
@@ -255,28 +308,187 @@ function ChatView() {
     setDraft("");
     setSending(true);
     setError("");
+    setNotice("");
 
     const ws = socketRef.current;
     try {
       if (ws?.readyState === WebSocket.OPEN) {
-        // The consumer persists and echoes the message back to the group.
+        pendingDraftRef.current = text;
         ws.send(JSON.stringify({ action: "message", content: text }));
       } else {
-        const res = await chatApi.sendMessage(activeId, text);
-        setMessages((prev) =>
-          prev.some((m) => m.id === res.message.id) ? prev : [...prev, res.message]
+        const response = await chatApi.sendMessage(activeId, text);
+        setMessages((previous) =>
+          previous.some((message) => message.id === response.message.id)
+            ? previous
+            : [...previous, response.message]
         );
       }
       bottomRef.current?.scrollIntoView({ block: "end" });
       if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
-      const s = socketRef.current;
-      if (s?.readyState === WebSocket.OPEN)
-        s.send(JSON.stringify({ action: "typing", is_typing: false }));
+      const socket = socketRef.current;
+      if (socket?.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ action: "typing", is_typing: false }));
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Message could not be sent.");
       setDraft(text);
     } finally {
       setSending(false);
+    }
+  }
+
+  async function startVoiceRecording() {
+    setError("");
+    setNotice("");
+    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+      setError("Voice recording is not supported by this browser.");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+      const preferredType = [
+        "audio/webm;codecs=opus",
+        "audio/ogg;codecs=opus",
+        "audio/mp4",
+      ].find((type) => MediaRecorder.isTypeSupported(type));
+      const recorder = preferredType
+        ? new MediaRecorder(stream, { mimeType: preferredType })
+        : new MediaRecorder(stream);
+      recorderRef.current = recorder;
+      recordingChunksRef.current = [];
+      cancelledRecordingRef.current = false;
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) recordingChunksRef.current.push(event.data);
+      };
+      recorder.onstop = () => {
+        stream.getTracks().forEach((track) => track.stop());
+        mediaStreamRef.current = null;
+        if (!cancelledRecordingRef.current) {
+          const blob = new Blob(recordingChunksRef.current, {
+            type: recorder.mimeType || "audio/webm",
+          });
+          const previewUrl = URL.createObjectURL(blob);
+          voicePreviewRef.current = previewUrl;
+          setVoiceBlob(blob);
+          setVoicePreviewUrl(previewUrl);
+        }
+        cancelledRecordingRef.current = false;
+      };
+      recorder.start();
+      setRecording(true);
+    } catch (err) {
+      const permissionDenied =
+        err instanceof DOMException &&
+        (err.name === "NotAllowedError" || err.name === "PermissionDeniedError");
+      setError(
+        permissionDenied
+          ? "Microphone access was denied. Allow microphone access to record a voice message."
+          : "Could not start recording. Check the microphone and try again."
+      );
+      mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current = null;
+    }
+  }
+
+  function stopVoiceRecording() {
+    if (recorderRef.current?.state === "recording") {
+      recorderRef.current.stop();
+      setRecording(false);
+    }
+  }
+
+  function cancelVoiceRecording() {
+    cancelledRecordingRef.current = true;
+    if (recorderRef.current?.state === "recording") {
+      recorderRef.current.stop();
+    } else {
+      mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current = null;
+    }
+    setRecording(false);
+    setVoiceBlob(null);
+    if (voicePreviewUrl) URL.revokeObjectURL(voicePreviewUrl);
+    voicePreviewRef.current = "";
+    setVoicePreviewUrl("");
+  }
+
+  async function sendVoiceMessage() {
+    if (!activeId || !voiceBlob) return;
+    if (voiceBlob.size > 10 * 1024 * 1024) {
+      setError("Voice messages must be 10 MB or smaller.");
+      return;
+    }
+    const type = voiceBlob.type || "audio/webm";
+    const extension = type.includes("ogg")
+      ? "ogg"
+      : type.includes("mp4")
+        ? "mp4"
+        : type.includes("mpeg")
+          ? "mp3"
+          : type.includes("wav")
+            ? "wav"
+            : "webm";
+    const file = new File([voiceBlob], `voice-message.${extension}`, { type });
+    setVoiceUploading(true);
+    setError("");
+    setNotice("");
+    try {
+      const response = await chatApi.sendVoice(activeId, file);
+      setMessages((previous) =>
+        previous.some((message) => message.id === response.message.id)
+          ? previous
+          : [...previous, response.message]
+      );
+      setNotice(
+        response.message.moderation_status === "PENDING_REVIEW"
+          ? "Voice message is held for moderation and has not been sent to the recipient yet."
+          : "Voice message sent."
+      );
+      setVoiceBlob(null);
+      if (voicePreviewUrl) URL.revokeObjectURL(voicePreviewUrl);
+      voicePreviewRef.current = "";
+      setVoicePreviewUrl("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Voice message could not be sent.");
+    } finally {
+      setVoiceUploading(false);
+    }
+  }
+
+  async function loadVoiceAudio(message: Message) {
+    if (audioUrlsRef.current[message.id]) return;
+    try {
+      const blob = await chatApi.downloadVoice(message.channel, message.id);
+      const url = URL.createObjectURL(blob);
+      audioUrlsRef.current[message.id] = url;
+      setAudioUrls((previous) => ({ ...previous, [message.id]: url }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Voice playback failed.");
+    }
+  }
+
+  async function reviewVoice(message: Message, decision: "APPROVE" | "BLOCK") {
+    const reason = moderationReasons[message.id]?.trim();
+    if (!reason) {
+      setError("Add a review reason before deciding on this voice message.");
+      return;
+    }
+    setError("");
+    setNotice("");
+    setModerationBusyId(message.id);
+    try {
+      await chatApi.reviewVoice(message.id, decision, reason);
+      setVoiceQueue((previous) => previous.filter((item) => item.id !== message.id));
+      setNotice(
+        decision === "APPROVE"
+          ? "Voice message approved and delivered."
+          : "Voice message blocked and removed from private storage."
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Voice review failed.");
+    } finally {
+      setModerationBusyId("");
     }
   }
 
@@ -329,6 +541,76 @@ function ChatView() {
         <div className="mb-5">
           <ErrorBanner message={error} onRetry={() => void loadChannels()} />
         </div>
+      )}
+      {notice && (
+        <div role="status" className="mb-5 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+          {notice}
+        </div>
+      )}
+
+      {voiceQueue.length > 0 && (
+        <Card className="mb-6">
+          <div className="border-b border-gray-100 p-5">
+            <h2 className="font-semibold text-gray-900">
+              Voice messages awaiting moderation ({voiceQueue.length})
+            </h2>
+            <p className="mt-1 text-sm text-gray-500">
+              Messages stay private to the sender until reviewed. Listen before deciding.
+            </p>
+          </div>
+          <div className="divide-y divide-gray-100">
+            {voiceQueue.map((message) => (
+              <div key={message.id} className="space-y-3 p-5">
+                <p className="text-sm font-medium text-gray-800">
+                  From {message.sender_name} · {formatDateTime(message.sent_at)}
+                </p>
+                {audioUrls[message.id] ? (
+                  <audio controls src={audioUrls[message.id]} className="w-full max-w-md">
+                    Your browser does not support audio playback.
+                  </audio>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => void loadVoiceAudio(message)}
+                  >
+                    Load private voice recording
+                  </Button>
+                )}
+                <Field label="Review reason" htmlFor={`voice-review-${message.id}`}>
+                  <Input
+                    id={`voice-review-${message.id}`}
+                    value={moderationReasons[message.id] || ""}
+                    onChange={(event) =>
+                      setModerationReasons((previous) => ({
+                        ...previous,
+                        [message.id]: event.target.value,
+                      }))
+                    }
+                    placeholder="Record why you approved or blocked this message"
+                  />
+                </Field>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    loading={moderationBusyId === message.id}
+                    disabled={!moderationReasons[message.id]?.trim()}
+                    onClick={() => void reviewVoice(message, "APPROVE")}
+                  >
+                    Approve and deliver
+                  </Button>
+                  <Button
+                    variant="danger"
+                    loading={moderationBusyId === message.id}
+                    disabled={!moderationReasons[message.id]?.trim()}
+                    onClick={() => void reviewVoice(message, "BLOCK")}
+                  >
+                    Block and delete audio
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
       )}
 
       {channels.length === 0 ? (
@@ -431,11 +713,6 @@ function ChatView() {
                       </p>
                       <div className="flex items-center gap-2">
                         {peer && <StatusPill value={peer.role} kind="role" />}
-                        {peer && (
-                          <span className="truncate text-xs text-gray-500">
-                            {peer.location || peer.phone}
-                          </span>
-                        )}
                       </div>
                     </div>
                   </div>
@@ -492,9 +769,41 @@ function ChatView() {
                                   )}
                                 </p>
                               )}
-                              <p className="whitespace-pre-wrap break-words text-sm">
-                                {m.content}
-                              </p>
+                              {m.kind === "VOICE" ? (
+                                <div className="space-y-2">
+                                  {audioUrls[m.id] ? (
+                                    <audio
+                                      controls
+                                      src={audioUrls[m.id]}
+                                      className="max-w-full"
+                                    >
+                                      Your browser does not support audio playback.
+                                    </audio>
+                                  ) : m.audio_url ? (
+                                    <Button
+                                      type="button"
+                                      variant="secondary"
+                                      onClick={() => void loadVoiceAudio(m)}
+                                    >
+                                      Play voice message
+                                    </Button>
+                                  ) : (
+                                    <p className="text-sm">Voice message unavailable</p>
+                                  )}
+                                  {m.moderation_status === "PENDING_REVIEW" && (
+                                    <p className="text-xs">
+                                      Pending moderation; not delivered to the recipient.
+                                    </p>
+                                  )}
+                                  {m.moderation_status === "BLOCKED" && (
+                                    <p className="text-xs">Blocked during moderation.</p>
+                                  )}
+                                </div>
+                              ) : (
+                                <p className="whitespace-pre-wrap break-words text-sm">
+                                  {m.content}
+                                </p>
+                              )}
                               <p
                                 className={`mt-1 text-right text-[10px] ${
                                   mine ? "text-green-100" : "text-gray-400"
@@ -519,6 +828,26 @@ function ChatView() {
                 </div>
 
                 <div className="border-t border-gray-100 p-3">
+                  {recording && (
+                    <p role="status" className="mb-2 text-sm font-medium text-red-700">
+                      Recording… Speak clearly, then stop to review before sending.
+                    </p>
+                  )}
+                  {voicePreviewUrl && (
+                    <div className="mb-3 flex flex-wrap items-center gap-2">
+                      <audio controls src={voicePreviewUrl}>
+                        Your browser does not support audio playback.
+                      </audio>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        icon={<X className="h-4 w-4" />}
+                        onClick={cancelVoiceRecording}
+                      >
+                        Discard
+                      </Button>
+                    </div>
+                  )}
                   <div className="flex items-end gap-2">
                     <Textarea
                       value={draft}
@@ -536,6 +865,35 @@ function ChatView() {
                       placeholder="Write a message. Enter to send, Shift+Enter for a new line."
                       className="resize-none"
                     />
+                    {recording ? (
+                      <Button
+                        type="button"
+                        variant="danger"
+                        icon={<Square className="h-4 w-4" />}
+                        onClick={stopVoiceRecording}
+                      >
+                        Stop
+                      </Button>
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        icon={<Mic className="h-4 w-4" />}
+                        onClick={() => void startVoiceRecording()}
+                        disabled={voiceUploading}
+                      >
+                        Record
+                      </Button>
+                    )}
+                    {voiceBlob && (
+                      <Button
+                        type="button"
+                        loading={voiceUploading}
+                        onClick={() => void sendVoiceMessage()}
+                      >
+                        Send voice
+                      </Button>
+                    )}
                     <Button
                       loading={sending}
                       disabled={!draft.trim()}

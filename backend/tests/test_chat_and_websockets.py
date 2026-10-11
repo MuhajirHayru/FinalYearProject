@@ -250,10 +250,63 @@ async def test_chat_websocket_rejects_suspended_user(chat_channel, farmer):
     assert code == 4401
 
 
+async def test_chat_websocket_closes_after_user_is_suspended(chat_channel, farmer):
+    communicator, connected, _ = await ws_connect(
+        f"/ws/chat/{chat_channel.id}/?token={token_for(farmer)}"
+    )
+    assert connected is True
+    await sync_to_async(setattr)(farmer, "status", AccountStatus.SUSPENDED)
+    await sync_to_async(farmer.save)(update_fields=["status"])
+
+    await communicator.send_json_to({"type": "chat.message", "content": "Blocked"})
+    output = await communicator.receive_output(timeout=1)
+    assert output["type"] == "websocket.close"
+    assert output["code"] == 4401
+    assert await sync_to_async(Message.objects.filter(channel=chat_channel).exists)() is False
+
+
 async def test_notification_websocket_rejects_anonymous():
     _, connected, code = await ws_connect("/ws/notifications/")
     assert connected is False
     assert code == 4401
+
+
+async def test_notification_websocket_closes_after_user_is_suspended(farmer):
+    notification = await sync_to_async(Notification.objects.create)(
+        recipient=farmer, type="SYSTEM", message="Unread"
+    )
+    communicator, connected, _ = await ws_connect(
+        f"/ws/notifications/?token={token_for(farmer)}"
+    )
+    assert connected is True
+    await communicator.receive_json_from()
+    await sync_to_async(setattr)(farmer, "status", AccountStatus.SUSPENDED)
+    await sync_to_async(farmer.save)(update_fields=["status"])
+
+    await communicator.send_json_to({"type": "notify.mark_all_read"})
+    output = await communicator.receive_output(timeout=1)
+    assert output["type"] == "websocket.close"
+    assert output["code"] == 4401
+    assert await sync_to_async(
+        lambda: Notification.objects.get(pk=notification.pk).is_read
+    )() is False
+
+
+async def test_notification_websocket_does_not_push_after_user_is_suspended(farmer):
+    communicator, connected, _ = await ws_connect(
+        f"/ws/notifications/?token={token_for(farmer)}"
+    )
+    assert connected is True
+    await communicator.receive_json_from()
+    await sync_to_async(setattr)(farmer, "status", AccountStatus.SUSPENDED)
+    await sync_to_async(farmer.save)(update_fields=["status"])
+
+    await sync_to_async(notify)(
+        user_ids=[farmer.id], type="SYSTEM", message="Private", actor=None
+    )
+    output = await communicator.receive_output(timeout=1)
+    assert output["type"] == "websocket.close"
+    assert output["code"] == 4401
 
 
 async def test_notification_websocket_receives_persisted_notification(farmer):

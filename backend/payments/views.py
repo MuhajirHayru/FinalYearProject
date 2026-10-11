@@ -1,6 +1,7 @@
 """Payment management endpoints (doc 5.1.5, UC-04, FR-W-04, FR-FM-01..04)."""
 import secrets
 import uuid
+from decimal import Decimal, InvalidOperation
 from django.db import transaction
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
@@ -10,7 +11,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from rest_framework import generics, mixins, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -20,6 +21,7 @@ from users.models import AuditLog, Role, User
 from users.permissions import IsFinancialManager, IsWholesaler, IsAuthenticatedRole
 
 from notifications.services import notify
+from greenpath.privacy import contains_restricted_content
 from .models import (
     AgreementStatus,
     BankAccount,
@@ -27,6 +29,7 @@ from .models import (
     BusinessAgreement,
     FundingStatus,
     Order,
+    OrderContactDisclosure,
     OrderPaymentStatus,
     OrderStatus,
     PayoutBank,
@@ -36,8 +39,8 @@ from .models import (
     Review,
     WalletFundingRequest,
     WalletPayoutRequest,
-    WalletTransaction,
     WalletTransactionType,
+    WalletTransaction,
 )
 from .serializers import (
     BusinessAgreementSerializer,
@@ -52,6 +55,7 @@ from .serializers import (
     WalletTransactionSerializer,
 )
 from .wallet_services import (
+    payout_reservation_is_active,
     release_escrow,
     release_order_reservation,
     reserve_order_funds,
@@ -110,6 +114,37 @@ def _filter_financial_request_queryset(queryset, request, statuses, *, payout=Fa
     if parsed_to:
         queryset = queryset.filter(submitted_at__date__lte=parsed_to)
 
+    if payout:
+        min_amount = params.get("min_amount", "").strip()
+        max_amount = params.get("max_amount", "").strip()
+        parsed_amounts = {}
+        for field, value in (("min_amount", min_amount), ("max_amount", max_amount)):
+            if value:
+                try:
+                    amount = Decimal(value)
+                    if not amount.is_finite() or amount < 0:
+                        raise InvalidOperation
+                except (InvalidOperation, ValueError):
+                    raise ValidationError({field: "Enter a valid amount."})
+                parsed_amounts[field] = amount
+                queryset = queryset.filter(
+                    **{"amount__gte" if field == "min_amount" else "amount__lte": amount}
+                )
+        if (
+            "min_amount" in parsed_amounts
+            and "max_amount" in parsed_amounts
+            and parsed_amounts["min_amount"] > parsed_amounts["max_amount"]
+        ):
+            raise ValidationError({"max_amount": "Must be greater than or equal to min_amount."})
+
+        destination_type = params.get("method", "").strip()
+        if destination_type == "REGISTERED":
+            queryset = queryset.filter(payout_account__isnull=False)
+        elif destination_type == "MANUAL":
+            queryset = queryset.filter(payout_account__isnull=True)
+        elif destination_type:
+            raise ValidationError({"method": "Choose REGISTERED or MANUAL."})
+
     search = params.get("search", "").strip()
     if search:
         fields = (
@@ -118,9 +153,31 @@ def _filter_financial_request_queryset(queryset, request, statuses, *, payout=Fa
         )
         if payout:
             fields |= Q(destination__icontains=search)
+            try:
+                fields |= Q(wallet__user__id=uuid.UUID(search))
+            except ValueError:
+                pass
+            try:
+                fields |= Q(id=uuid.UUID(search))
+            except ValueError:
+                pass
         else:
             fields |= Q(payment_method__icontains=search)
         queryset = queryset.filter(fields)
+
+    ordering = params.get("ordering", "").strip()
+    if payout:
+        payout_ordering = {
+            "newest": "-submitted_at",
+            "oldest": "submitted_at",
+            "amount_asc": "amount",
+            "amount_desc": "-amount",
+            "status": "status",
+        }
+        if ordering:
+            if ordering not in payout_ordering:
+                raise ValidationError({"ordering": "Choose a valid payout sort order."})
+            queryset = queryset.order_by(payout_ordering[ordering], "-submitted_at")
     return queryset
 
 
@@ -263,7 +320,17 @@ class OrderViewSet(
             "wholesaler", "farmer", "retailer", "product"
         ).prefetch_related("agreement")
         if user.role in (Role.FINANCIAL_MANAGER, Role.SUPER_ADMIN, Role.USER_ADMIN):
-            pass
+            if user.role == Role.USER_ADMIN:
+                from registrations.services import users_visible_to_admin
+
+                visible_ids = users_visible_to_admin(user).values("pk")
+                qs = qs.filter(
+                    Q(wholesaler_id__in=visible_ids)
+                    & (
+                        Q(farmer_id__in=visible_ids)
+                        | Q(farmer__isnull=True, retailer_id__in=visible_ids)
+                    )
+                )
         elif user.role == Role.WHOLESALER:
             qs = qs.filter(Q(wholesaler=user) | Q(farmer=user))
         elif user.role == Role.FARMER:
@@ -281,8 +348,14 @@ class OrderViewSet(
     def get_permissions(self):
         if self.action == "create":
             return [IsAuthenticatedRole((Role.WHOLESALER, Role.RETAILER))]
-        if self.action in ("release",):
+        if self.action == "release":
             return [IsFinancialManager()]
+        if self.action == "disclose_contact":
+            return [
+                IsAuthenticatedRole(
+                    (Role.USER_ADMIN, Role.FINANCIAL_MANAGER, Role.SUPER_ADMIN)
+                )
+            ]
         return super().get_permissions()
 
     def create(self, request, *args, **kwargs):
@@ -542,6 +615,175 @@ class OrderViewSet(
         return Response(
             {
                 "success": True,
+                "order": OrderSerializer(
+                    updated, context=self.get_serializer_context()
+                ).data,
+            }
+        )
+
+    @action(detail=True, methods=["post"], url_path="disclose-contact")
+    def disclose_contact(self, request, pk=None):
+        order = self.get_object()
+        recipient_id = request.data.get("recipient_id")
+        fields = request.data.get("fields")
+        reason = (request.data.get("reason") or "").strip()
+        allowed_fields = {
+            "phone",
+            "email",
+            "address",
+            "precise_location",
+            "delivery_information",
+        }
+        if not isinstance(fields, list) or not fields:
+            raise ValidationError({"fields": "Choose one or more fields to disclose."})
+        if any(not isinstance(field, str) for field in fields):
+            raise ValidationError({"fields": "Each field must be a string."})
+        selected_fields = set(fields)
+        if len(selected_fields) != len(fields) or not selected_fields <= allowed_fields:
+            raise ValidationError({"fields": "Choose valid, non-duplicate fields."})
+        if not reason or len(reason) > 500:
+            raise ValidationError(
+                {"reason": "Provide a reason of 1 to 500 characters."}
+            )
+        if contains_restricted_content(reason):
+            raise ValidationError(
+                {"reason": "Do not include private contact details in the reason."}
+            )
+
+        with transaction.atomic():
+            locked_order = Order.objects.select_for_update().select_related(
+                "wholesaler", "farmer", "retailer"
+            ).get(pk=order.pk)
+            if locked_order.status in (
+                OrderStatus.PENDING_SELLER_APPROVAL,
+                OrderStatus.REJECTED,
+                OrderStatus.CANCELLED,
+                OrderStatus.DISPUTED,
+            ):
+                raise ValidationError(
+                    {"order": "Contact information cannot be disclosed at this stage."}
+                )
+
+            try:
+                recipient = next(
+                    participant
+                    for participant in (locked_order.buyer, locked_order.seller)
+                    if str(participant.pk) == str(recipient_id)
+                )
+            except StopIteration:
+                raise ValidationError(
+                    {"recipient_id": "Recipient must be an order participant."}
+                )
+            if recipient.pk == request.user.pk:
+                raise ValidationError(
+                    {"recipient_id": "Choose the other order participant."}
+                )
+            if "delivery_information" in selected_fields and (
+                recipient.pk != locked_order.seller.pk
+            ):
+                raise ValidationError(
+                    {
+                        "fields": (
+                            "Buyer delivery information may only be disclosed "
+                            "to the seller."
+                        )
+                    }
+                )
+
+            if request.user.role == Role.USER_ADMIN:
+                from registrations.services import users_visible_to_admin
+
+                visible = users_visible_to_admin(request.user)
+                if not all(
+                    visible.filter(pk=participant.pk).exists()
+                    for participant in (locked_order.buyer, locked_order.seller)
+                ):
+                    raise PermissionDenied(
+                        "This order is outside your administrative scope."
+                    )
+
+            existing_fields = {
+                field
+                for disclosure in OrderContactDisclosure.objects.filter(
+                    order=locked_order, recipient=recipient
+                ).only("disclosed_fields")
+                for field in disclosure.disclosed_fields
+            }
+            new_fields = selected_fields - existing_fields
+            if not new_fields:
+                raise ValidationError(
+                    {"fields": "These fields have already been disclosed."}
+                )
+
+            contact = (
+                locked_order.buyer
+                if recipient.pk == locked_order.seller.pk
+                else locked_order.seller
+            )
+            registration = getattr(contact, "registration", None)
+            available_values = {
+                "phone": contact.phone,
+                "email": contact.email,
+                "address": (
+                    registration.business_address
+                    if registration and registration.business_address
+                    else contact.location
+                ),
+                "precise_location": (
+                    bool(contact.latitude is not None and contact.longitude is not None)
+                    or bool(contact.location)
+                    or bool(
+                        registration
+                        and registration.business_address
+                    )
+                ),
+                "delivery_information": locked_order.delivery_information,
+            }
+            empty_fields = {
+                field for field in new_fields if not available_values[field]
+            }
+            if empty_fields:
+                raise ValidationError(
+                    {
+                        "fields": (
+                            "The selected information is not available for this "
+                            "order participant."
+                        )
+                    }
+                )
+
+            disclosure = OrderContactDisclosure.objects.create(
+                order=locked_order,
+                recipient=recipient,
+                authorized_by=request.user,
+                disclosed_fields=sorted(new_fields),
+                reason=reason,
+            )
+            AuditLog.objects.create(
+                actor=request.user,
+                action="order_contact_disclosed",
+                target=locked_order.reference,
+                detail=(
+                    f"disclosure_id={disclosure.pk}; recipient_id={recipient.pk}; "
+                    f"fields={','.join(disclosure.disclosed_fields)}; reason={reason}"
+                ),
+            )
+
+        notify(
+            user_ids=[recipient.pk],
+            type="ORDER",
+            message=(
+                f"Authorized order information is now available for "
+                f"{locked_order.reference}."
+            ),
+            actor=request.user,
+            target_url=f"/orders/{locked_order.pk}",
+        )
+        updated = self.get_queryset().get(pk=locked_order.pk)
+        return Response(
+            {
+                "success": True,
+                "disclosure_id": str(disclosure.pk),
                 "order": OrderSerializer(
                     updated, context=self.get_serializer_context()
                 ).data,
@@ -1029,39 +1271,61 @@ class WalletPayoutRequestListCreateView(generics.ListCreateAPIView):
     serializer_class = WalletPayoutRequestSerializer
 
     def get_queryset(self):
-            queryset = WalletPayoutRequest.objects.select_related(
-                "wallet__user", "payout_account__bank"
-            )
-            if self.request.user.role not in (Role.FINANCIAL_MANAGER, Role.SUPER_ADMIN):
-                queryset = queryset.filter(wallet__user=self.request.user)
-            return _filter_financial_request_queryset(
-                queryset, self.request, PayoutStatus.choices, payout=True
-            )
+        queryset = WalletPayoutRequest.objects.select_related(
+            "wallet__user", "payout_account__bank"
+        )
+        if self.request.user.role not in (Role.FINANCIAL_MANAGER, Role.SUPER_ADMIN):
+            queryset = queryset.filter(wallet__user=self.request.user)
+        return _filter_financial_request_queryset(
+            queryset, self.request, PayoutStatus.choices, payout=True
+        )
 
     def create(self, request, *args, **kwargs):
-            idempotency_key = (request.headers.get("Idempotency-Key") or "").strip()
+        idempotency_key = (request.headers.get("Idempotency-Key") or "").strip()
+        if idempotency_key:
+            existing = WalletPayoutRequest.objects.filter(
+                idempotency_key=idempotency_key
+            ).first()
+            if existing:
+                if existing.wallet.user_id != request.user.id:
+                    raise ValidationError("This idempotency key belongs to another request.")
+                return Response(
+                    WalletPayoutRequestSerializer(
+                        existing, context=self.get_serializer_context()
+                    ).data
+                )
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        if request.user.role not in (Role.FARMER, Role.WHOLESALER, Role.RETAILER):
+            raise ValidationError("Only marketplace participants can request a payout.")
+        created = False
+        with transaction.atomic():
+            payout_account = serializer.validated_data.get("payout_account")
+            if payout_account:
+                payout_account = BankAccount.objects.select_for_update().get(
+                    pk=payout_account.pk, user=request.user
+                )
+            wallet = wallet_for(request.user, lock=True)
+            payout = None
             if idempotency_key:
-                existing = WalletPayoutRequest.objects.filter(
-                    idempotency_key=idempotency_key
-                ).first()
-                if existing:
-                    if existing.wallet.user_id != request.user.id:
-                        raise ValidationError("This idempotency key belongs to another request.")
-                    return Response(WalletPayoutRequestSerializer(existing).data)
-            serializer = self.get_serializer(data=request.data)
-            serializer.is_valid(raise_exception=True)
-            if request.user.role not in (Role.FARMER, Role.WHOLESALER, Role.RETAILER):
-                raise ValidationError("Only marketplace participants can request a payout.")
-            with transaction.atomic():
-                payout_account = serializer.validated_data.get("payout_account")
-                if payout_account:
-                    payout_account = BankAccount.objects.select_for_update().get(
-                        pk=payout_account.pk, user=request.user
+                payout = (
+                    WalletPayoutRequest.objects.select_related(
+                        "wallet__user", "payout_account__bank"
                     )
-                wallet = wallet_for(request.user, lock=True)
+                    .filter(idempotency_key=idempotency_key)
+                    .first()
+                )
+                if payout and payout.wallet.user_id != request.user.id:
+                    raise ValidationError(
+                        "This idempotency key belongs to another request."
+                    )
+
+            if payout is None:
                 amount = serializer.validated_data["amount"]
                 if wallet.available_balance < amount:
-                    raise ValidationError({"wallet": "Insufficient available balance."})
+                    raise ValidationError(
+                        {"wallet": "Insufficient available balance."}
+                    )
                 wallet.available_balance -= amount
                 wallet.held_balance += amount
                 wallet.save(
@@ -1081,17 +1345,118 @@ class WalletPayoutRequestListCreateView(generics.ListCreateAPIView):
                     actor=request.user,
                     description="Funds reserved for manual payout review",
                 )
+                AuditLog.objects.create(
+                    actor=request.user,
+                    action="wallet_payout_requested",
+                    target=str(payout.pk),
+                    detail=(
+                        f"Status: none -> {PayoutStatus.PENDING}; "
+                        f"amount: {amount:.2f} ETB."
+                    ),
+                )
+                created = True
+        if created:
             notify(
                 roles=(Role.FINANCIAL_MANAGER, Role.SUPER_ADMIN),
                 type="PAYMENT",
                 message=f"Payout request received from {request.user.full_name}.",
                 actor=request.user,
-                target_url="/financial-manager/payments?tab=payouts",
+                target_url="/financial-manager/payouts",
             )
-            return Response(
-                WalletPayoutRequestSerializer(payout).data,
-                status=201,
-            )
+        return Response(
+            WalletPayoutRequestSerializer(
+                payout, context=self.get_serializer_context()
+            ).data,
+            status=201 if created else 200,
+        )
+
+
+class WalletPayoutDetailView(APIView):
+    permission_classes = [IsFinancialManager]
+
+    def get(self, request, pk):
+        payout = get_object_or_404(
+            WalletPayoutRequest.objects.select_related(
+                "wallet__user",
+                "payout_account__bank",
+                "reviewed_by",
+            ),
+            pk=pk,
+        )
+        wallet = payout.wallet
+        transactions = WalletTransaction.objects.filter(
+            wallet=wallet,
+            reference__in=(
+                f"PAYOUT-HOLD-{payout.pk}",
+                f"PAYOUT-{payout.pk}",
+                f"PAYOUT-RETURN-{payout.pk}",
+            ),
+        ).select_related("actor").order_by("created_at")
+        history = AuditLog.objects.filter(target=str(payout.pk)).select_related(
+            "actor"
+        ).order_by("created_at")
+        reserved = (
+            wallet.held_balance >= payout.amount
+            and payout_reservation_is_active(payout)
+        )
+        account = payout.payout_account
+        return Response(
+            {
+                "payout": WalletPayoutRequestSerializer(
+                    payout, context={"request": request}
+                ).data,
+                "requester": {
+                    "id": str(wallet.user_id),
+                    "name": wallet.user.full_name,
+                    "role": wallet.user.role,
+                    "email": wallet.user.email,
+                },
+                "wallet": {
+                    "currency": wallet.currency,
+                    "available_balance": wallet.available_balance,
+                    "held_balance": wallet.held_balance,
+                    "requested_amount_reserved": reserved,
+                },
+                "destination_review": {
+                    "status": account.status if account else "MANUAL_DESTINATION",
+                    "bank_name": account.bank.name if account else "",
+                    "account_holder_name": account.account_holder_name if account else "",
+                    "account_type": account.account_type if account else "",
+                    "masked_account_number": (
+                        account.masked_account_number if account else ""
+                    ),
+                    "requires_external_confirmation": True,
+                },
+                "eligible_for_manual_confirmation": (
+                    payout.status == PayoutStatus.PENDING
+                    and payout.amount > 0
+                    and reserved
+                    and bool(payout.destination.strip())
+                ),
+                "transactions": [
+                    {
+                        "id": str(item.pk),
+                        "type": item.transaction_type,
+                        "amount": item.amount,
+                        "reference": item.reference,
+                        "external_reference": item.external_reference,
+                        "description": item.description,
+                        "actor": item.actor.full_name if item.actor else "",
+                        "created_at": item.created_at,
+                    }
+                    for item in transactions
+                ],
+                "history": [
+                    {
+                        "actor": item.actor.full_name if item.actor else "",
+                        "action": item.action,
+                        "detail": item.detail,
+                        "created_at": item.created_at,
+                    }
+                    for item in history
+                ],
+            }
+        )
 
 
 class WalletPayoutReviewView(APIView):
@@ -1103,26 +1468,36 @@ class WalletPayoutReviewView(APIView):
         responses=OpenApiTypes.OBJECT,
     )
     def post(self, request, pk):
-            decision = self.serializer_class(data=request.data)
-            decision.is_valid(raise_exception=True)
-            approve = decision.validated_data["approve"]
-            payout = review_payout_request(
-                pk,
-                request.user,
-                approve=approve,
-                external_reference=decision.validated_data["external_reference"],
-                notes=decision.validated_data["notes"],
-            )
-            notify(
-                user_ids=[payout.wallet.user_id],
-                type="PAYMENT",
-                message=f"Your payout request was {payout.status.lower()}.",
-                actor=request.user,
-                target_url="/wallet",
-            )
-            return Response(
-                {"success": True, "payout_request": WalletPayoutRequestSerializer(payout).data}
-            )
+        decision = self.serializer_class(data=request.data)
+        decision.is_valid(raise_exception=True)
+        approve = decision.validated_data["approve"]
+        payout = review_payout_request(
+            pk,
+            request.user,
+            approve=approve,
+            external_reference=decision.validated_data["external_reference"],
+            notes=decision.validated_data["notes"],
+        )
+        status_message = (
+            "confirmed as paid after manual transfer verification"
+            if approve
+            else f"rejected: {payout.review_notes.strip()}"
+        )
+        notify(
+            user_ids=[payout.wallet.user_id],
+            type="PAYMENT",
+            message=f"Your payout request was {status_message}.",
+            actor=request.user,
+            target_url="/wallet",
+        )
+        return Response(
+            {
+                "success": True,
+                "payout_request": WalletPayoutRequestSerializer(
+                    payout, context={"request": request}
+                ).data,
+            }
+        )
 
 
 class BusinessAgreementListView(generics.ListAPIView):

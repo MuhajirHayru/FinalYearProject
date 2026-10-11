@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 import { getNavItems, useAuth, usesSidebar, type NavItem } from "@/lib/auth/context";
 import { ICONS, shortRelative } from "@/lib/format";
-import { authApi, notificationsApi } from "@/lib/api/client";
+import { authApi, notificationsApi, walletApi } from "@/lib/api/client";
 import { Avatar, Spinner } from "@/components/ui";
 import { PresenceProvider } from "@/components/presence/PresenceProvider";
 import { cn } from "@/lib/utils";
@@ -326,6 +326,41 @@ const BADGED_LABELS = new Set(["Notifications"]);
 
 function NavBadge({ label }: { label: string }) {
   const { count } = useUnread();
+  const { user } = useAuth();
+  const pathname = usePathname();
+  const [pendingPayoutCount, setPendingPayoutCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (label !== "Payout Invoices") return;
+    if (user?.role !== "FINANCIAL_MANAGER") {
+      setPendingPayoutCount(null);
+      return;
+    }
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const data = await walletApi.payouts({ status: "PENDING", page: 1 });
+        if (!cancelled) setPendingPayoutCount(data.count);
+      } catch {
+        if (!cancelled) setPendingPayoutCount(null);
+      }
+    };
+    void load();
+    const timer = setInterval(load, 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [label, pathname, user?.role]);
+
+  if (label === "Payout Invoices") {
+    if (pendingPayoutCount === null || pendingPayoutCount <= 0) return null;
+    return (
+      <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-400 px-1 text-[10px] font-semibold text-green-950">
+        {pendingPayoutCount > 99 ? "99+" : pendingPayoutCount}
+      </span>
+    );
+  }
   if (!BADGED_LABELS.has(label) || count <= 0) return null;
   return (
     <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold text-white">

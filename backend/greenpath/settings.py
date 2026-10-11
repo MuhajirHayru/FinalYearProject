@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     "payments",
     "notifications",
     "dashboard",
+    "registrations",
 ]
 
 MIDDLEWARE = [
@@ -119,6 +120,16 @@ STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"
+REGISTRATION_PRIVATE_MEDIA_ROOT = Path(
+    os.environ.get("REGISTRATION_PRIVATE_MEDIA_ROOT", BASE_DIR / "private-media")
+)
+CHAT_PRIVATE_MEDIA_ROOT = Path(
+    os.environ.get(
+        "CHAT_PRIVATE_MEDIA_ROOT", BASE_DIR / "private-media" / "chat"
+    )
+)
+CHAT_VOICE_TRANSCRIBER = os.environ.get("CHAT_VOICE_TRANSCRIBER", "")
+CHAT_VOICE_MAX_BYTES = int(os.environ.get("CHAT_VOICE_MAX_BYTES", str(10 * 1024 * 1024)))
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
@@ -144,7 +155,7 @@ CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS
 # ---------------------------------------------------------------------------
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "users.authentication.PasswordVersionJWTAuthentication",
     ),
     "DEFAULT_PERMISSION_CLASSES": (
         "rest_framework.permissions.IsAuthenticated",
@@ -153,6 +164,11 @@ REST_FRAMEWORK = {
     "PAGE_SIZE": 20,
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "EXCEPTION_HANDLER": "greenpath.exceptions.api_exception_handler",
+    "DEFAULT_THROTTLE_RATES": {
+        "login": "20/minute",
+        "password_reset_request": "5/hour",
+        "password_reset_confirm": "10/hour",
+    },
 }
 
 SPECTACULAR_SETTINGS = {
@@ -181,6 +197,20 @@ REFRESH_COOKIE_HTTPONLY = True
 REFRESH_COOKIE_SAMESITE = "Lax"
 REFRESH_COOKIE_SECURE = os.environ.get("DJANGO_SECURE_COOKIES", "0") == "1"
 REFRESH_COOKIE_PATH = "/"
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "")
+EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "587"))
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "1") == "1"
+EMAIL_USE_SSL = os.environ.get("EMAIL_USE_SSL", "0") == "1"
+EMAIL_TIMEOUT = int(os.environ.get("EMAIL_TIMEOUT", "10"))
+DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "Green Path <no-reply@greenpath.et>")
+AFRICASTALKING_USERNAME = os.environ.get("AFRICASTALKING_USERNAME", "")
+AFRICASTALKING_API_KEY = os.environ.get("AFRICASTALKING_API_KEY", "")
+AFRICASTALKING_SENDER_ID = os.environ.get("AFRICASTALKING_SENDER_ID", "")
+AFRICASTALKING_TIMEOUT_SECONDS = int(
+    os.environ.get("AFRICASTALKING_TIMEOUT_SECONDS", "10")
+)
 
 # ---------------------------------------------------------------------------
 # Django Channels (WebSocket chat / notifications). Redis in prod, in-memory dev.

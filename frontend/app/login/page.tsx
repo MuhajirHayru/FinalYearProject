@@ -12,6 +12,7 @@ import {
   Truck,
   Warehouse,
 } from "lucide-react";
+import { ApiRequestError } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/context";
 import { Button, ErrorBanner, Input, SuccessBanner } from "@/components/ui";
 
@@ -76,6 +77,35 @@ function LoginForm() {
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [attemptsRemaining, setAttemptsRemaining] = useState<number | null>(null);
+  const [maxAttempts, setMaxAttempts] = useState<number | null>(null);
+  const [lockedEmail, setLockedEmail] = useState("");
+  const [lockExpiresAt, setLockExpiresAt] = useState<number | null>(null);
+  const [countdownNow, setCountdownNow] = useState(Date.now());
+
+  const lockSecondsRemaining =
+    lockExpiresAt === null
+      ? 0
+      : Math.max(0, Math.ceil((lockExpiresAt - countdownNow) / 1000));
+  const emailIsLocked =
+    email.trim().toLowerCase() === lockedEmail && lockSecondsRemaining > 0;
+
+  useEffect(() => {
+    if (lockExpiresAt === null) return;
+    const timer = window.setInterval(() => {
+      const now = Date.now();
+      setCountdownNow(now);
+      if (now >= lockExpiresAt) {
+        window.clearInterval(timer);
+        setLockExpiresAt(null);
+        setLockedEmail("");
+        setAttemptsRemaining(null);
+        setMaxAttempts(null);
+        setError("The sign-in lockout has expired. You may try again.");
+      }
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [lockExpiresAt]);
 
   useEffect(() => {
     if (!authLoading && isAuthenticated && user) {
@@ -84,16 +114,56 @@ function LoginForm() {
   }, [authLoading, isAuthenticated, user, router]);
 
   async function attempt(nextEmail: string, nextPassword: string) {
+    if (
+      nextEmail.trim().toLowerCase() === lockedEmail &&
+      lockExpiresAt !== null &&
+      lockExpiresAt > Date.now()
+    ) {
+      return;
+    }
     setError("");
     setBusy(true);
     try {
       await login(nextEmail, nextPassword);
+      setAttemptsRemaining(null);
+      setMaxAttempts(null);
+      setLockExpiresAt(null);
+      setLockedEmail("");
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Login failed. Is the backend running on port 8000?"
-      );
+      if (err instanceof ApiRequestError) {
+        const payload = err.payload as {
+          error?: unknown;
+          attempts_remaining?: unknown;
+          max_attempts?: unknown;
+          retry_after_seconds?: unknown;
+        } | null;
+        if (
+          typeof payload?.attempts_remaining === "number" &&
+          typeof payload.max_attempts === "number"
+        ) {
+          const remaining = payload.attempts_remaining;
+          const maximum = payload.max_attempts;
+          const retryAfter = payload.retry_after_seconds;
+          setAttemptsRemaining(remaining);
+          setMaxAttempts(maximum);
+          setLockedEmail(nextEmail.trim().toLowerCase());
+          if (typeof payload.error === "string") setError(payload.error);
+          if (typeof retryAfter === "number" && retryAfter > 0) {
+            setLockExpiresAt(Date.now() + retryAfter * 1000);
+            setCountdownNow(Date.now());
+          } else {
+            setLockExpiresAt(null);
+          }
+        } else {
+          setError(err.message);
+        }
+      } else {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Login failed. Is the backend running on port 8000?"
+        );
+      }
     } finally {
       setBusy(false);
     }
@@ -160,9 +230,36 @@ function LoginForm() {
             </div>
           )}
 
+          {searchParams.get("password_changed") === "true" && (
+            <div className="mb-6">
+              <SuccessBanner message="Your password was changed. Sign in with the new password." />
+            </div>
+          )}
+
           {error && (
             <div className="mb-6">
-              <ErrorBanner message={error} />
+              <ErrorBanner
+                message={
+                  attemptsRemaining !== null &&
+                  attemptsRemaining > 0 &&
+                  lockSecondsRemaining === 0 &&
+                  email.trim().toLowerCase() === lockedEmail
+                    ? `${error} ${attemptsRemaining} of ${maxAttempts} attempts remain.`
+                    : error
+                }
+              />
+            </div>
+          )}
+
+          {emailIsLocked && (
+            <div
+              className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+              role="status"
+              aria-live="polite"
+            >
+              Too many incorrect passwords. Sign-in is disabled for this account.
+              Try again in {Math.floor(lockSecondsRemaining / 60)}m{" "}
+              {lockSecondsRemaining % 60}s.
             </div>
           )}
 
@@ -185,7 +282,10 @@ function LoginForm() {
                 type="email"
                 autoComplete="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  setError("");
+                }}
                 required
                 placeholder="you@example.com"
               />
@@ -204,7 +304,10 @@ function LoginForm() {
                   type={showPassword ? "text" : "password"}
                   autoComplete="current-password"
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    setError("");
+                  }}
                   required
                   placeholder="............"
                   className="pr-11"
@@ -228,9 +331,14 @@ function LoginForm() {
               type="submit"
               size="lg"
               loading={busy}
+              disabled={busy || emailIsLocked}
               className="w-full"
             >
-              {busy ? "Signing in..." : "Sign in"}
+              {busy
+                ? "Signing in..."
+                : emailIsLocked
+                  ? `Try again in ${Math.floor(lockSecondsRemaining / 60)}m ${lockSecondsRemaining % 60}s`
+                  : "Sign in"}
             </Button>
           </form>
 
@@ -253,7 +361,11 @@ function LoginForm() {
                   <button
                     key={demo.email}
                     type="button"
-                    disabled={busy}
+                    disabled={
+                      busy ||
+                      (demo.email.toLowerCase() === lockedEmail &&
+                        lockSecondsRemaining > 0)
+                    }
                     onClick={() => void attempt(demo.email, DEMO_PASSWORD)}
                     className="flex items-center gap-2.5 rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-left text-sm text-gray-700 transition-colors hover:border-green-300 hover:bg-green-50/50 disabled:opacity-50"
                   >
@@ -287,6 +399,18 @@ function LoginForm() {
           </p>
 
           <p className="mt-3 text-center text-sm text-gray-500">
+            <Link href="/forgot-password" className="font-medium text-green-700 hover:text-green-800">
+              Forgot your password?
+            </Link>
+          </p>
+
+          <p className="mt-3 text-center text-sm text-gray-500">
+            <Link href="/registration/resume" className="font-medium text-green-700 hover:text-green-800">
+              Finish an incomplete registration
+            </Link>
+          </p>
+
+          <p className="mt-3 text-center text-sm text-gray-500">
             <Link href="/public-announcement" className="hover:text-gray-700">
               Platform announcement
             </Link>
@@ -296,5 +420,3 @@ function LoginForm() {
     </div>
   );
 }
-
-

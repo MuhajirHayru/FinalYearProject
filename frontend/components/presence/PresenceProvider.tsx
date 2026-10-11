@@ -14,6 +14,8 @@ import { useAuth } from "@/lib/auth/context";
 
 type PresenceState = Record<string, boolean>;
 
+const PRESENCE_ROLES = new Set(["FARMER", "WHOLESALER", "RETAILER"]);
+
 const PresenceContext = createContext<PresenceState>({});
 
 export function PresenceProvider({ children }: { children: ReactNode }) {
@@ -21,7 +23,7 @@ export function PresenceProvider({ children }: { children: ReactNode }) {
   const [presence, setPresence] = useState<PresenceState>({});
 
   useEffect(() => {
-    if (!isAuthenticated || !user) {
+    if (!isAuthenticated || !user || !PRESENCE_ROLES.has(user.role)) {
       setPresence({});
       return;
     }
@@ -84,7 +86,7 @@ export function PresenceProvider({ children }: { children: ReactNode }) {
       if (heartbeatTimer) clearInterval(heartbeatTimer);
       socket?.close();
     };
-  }, [isAuthenticated, user?.id]);
+  }, [isAuthenticated, user?.id, user?.role]);
 
   const value = useMemo(() => presence, [presence]);
   return (

@@ -19,28 +19,34 @@ Event catalogue:
 ``message_received``          A chat message was persisted.
 ============================  ==========================================
 """
-from chat.models import Message
+from chat.models import Message, MessageModerationStatus
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 
 from notifications.services import notify
 from payments.models import Order, OrderStatus, PaymentRecord, PaymentStatus
-from users.models import AccountStatus, User
+from users.models import AccountStatus, Role, User
 
 
 @receiver(post_save, sender=User)
 def user_registered(sender, instance, created, **kwargs):
-    """Notify the approval queue (UC-01 step 7)."""
-    if not created or instance.role not in ("FARMER", "WHOLESALER", "RETAILER"):
+    """Registration notifications are emitted only after a complete profile is submitted."""
+    return
+
+
+@receiver(post_save, sender=User)
+def default_user_admin_scope(sender, instance, created, **kwargs):
+    """New User Admins retain the established global scope until Super Admin narrows it."""
+    if not created or instance.role != Role.USER_ADMIN:
         return
-    notify(
-        roles=("USER_ADMIN", "SUPER_ADMIN"),
-        type="REGISTRATION",
-        message=(
-            f"New {instance.get_role_display().lower()} registration pending "
-            f"approval: {instance.full_name}"
-        ),
-        actor=instance,
+    from registrations.models import AdministratorScope
+
+    AdministratorScope.objects.get_or_create(
+        user=instance,
+        defaults={
+            "level": AdministratorScope.Level.GLOBAL,
+            "location": None,
+        },
     )
 
 
@@ -184,7 +190,7 @@ def remember_order_status(sender, instance, **kwargs):
 @receiver(post_save, sender=Message)
 def message_received(sender, instance, created, **kwargs):
     """Alert every other participant that a new message arrived (UC-03)."""
-    if not created:
+    if not created or instance.moderation_status != MessageModerationStatus.APPROVED:
         return
     recipient_ids = [
         pk
