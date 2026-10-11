@@ -136,6 +136,60 @@ def test_completion_credential_is_limited_and_draft_persists(api):
     assert marketplace_response.status_code in (401, 403)
 
 
+def test_registration_product_catalog_only_exposes_vegetables_and_fruits(api):
+    vegetable = AgriculturalProductType.objects.create(
+        code="registration-cabbage",
+        name="Registration Cabbage",
+        category=Category.VEGETABLES,
+    )
+    root_crop = AgriculturalProductType.objects.create(
+        code="registration-potato",
+        name="Registration Potato",
+        category=Category.ROOT_CROPS,
+    )
+    fruit = AgriculturalProductType.objects.create(
+        code="registration-mango",
+        name="Registration Mango",
+        category=Category.FRUITS,
+    )
+    grain = AgriculturalProductType.objects.create(
+        code="registration-teff",
+        name="Registration Teff",
+        category=Category.GRAINS,
+    )
+
+    response = api.get("/api/v1/registration/product-types/")
+
+    assert response.status_code == 200, response.data
+    returned_ids = {item["id"] for item in response.data}
+    assert {str(vegetable.pk), str(root_crop.pk), str(fruit.pk)} <= returned_ids
+    assert str(grain.pk) not in returned_ids
+
+
+def test_registration_rejects_product_interest_outside_allowed_categories(api):
+    user, token = _create_registration(api)
+    grain = AgriculturalProductType.objects.create(
+        code="registration-invalid-grain",
+        name="Registration Invalid Grain",
+        category=Category.GRAINS,
+    )
+    api.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    response = api.patch(
+        "/api/v1/registration/me/",
+        {
+            "product_selections": [
+                {"product_type": str(grain.pk), "intent": "PRODUCES"}
+            ],
+        },
+        format="json",
+    )
+
+    assert response.status_code == 400, response.data
+    registration = UserRegistration.objects.get(user=user)
+    assert not registration.product_selections.exists()
+
+
 def test_submission_requires_verified_reference_data_and_license_then_review(api, user_admin):
     user, token = _create_registration(api, email="submit-farmer@test.et")
     region = _location("Verified Region", "submit-region")

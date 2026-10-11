@@ -198,7 +198,7 @@ export default function RegisterPage() {
           >
             <div>
               <p className="mb-2 text-sm font-medium text-gray-700">
-                I am registering as
+                What is your role in the agricultural product marketplace?
               </p>
               <div className="grid gap-3 sm:grid-cols-3">
                 {ROLES.map((role) => {

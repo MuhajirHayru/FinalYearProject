@@ -12,6 +12,7 @@ from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 
 from notifications.services import notify
+from products.models import Category
 from users.models import AccountStatus, AuditLog, PlatformSettings, Role, User
 
 from .authentication import RegistrationCompletionAuthentication
@@ -64,9 +65,10 @@ class ProductTypeOptionsView(generics.ListAPIView):
     authentication_classes = []
     serializer_class = AgriculturalProductTypeSerializer
     pagination_class = None
-    queryset = AgriculturalProductType.objects.filter(active=True).order_by(
-        "category", "name"
-    )
+    queryset = AgriculturalProductType.objects.filter(
+        active=True,
+        category__in=(Category.VEGETABLES, Category.ROOT_CROPS, Category.FRUITS),
+    ).order_by("category", "name")
 
 
 class RegistrationDraftView(views.APIView):

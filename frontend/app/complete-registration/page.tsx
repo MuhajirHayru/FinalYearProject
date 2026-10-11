@@ -3,7 +3,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, ChevronLeft, ChevronRight, FileUp, Leaf } from "lucide-react";
+import {
+  Apple,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  FileUp,
+  Leaf,
+  Sprout,
+  X,
+} from "lucide-react";
 import {
   registrationApi,
   setRegistrationCompletionToken,
@@ -25,6 +34,10 @@ import type {
 } from "@/lib/types";
 
 const STEPS = ["Your details", "Location", "Products", "Documents", "Review"];
+const INTEREST_CATEGORIES = [
+  { name: "Vegetables", description: "Fresh vegetables and root crops", Icon: Sprout },
+  { name: "Fruits", description: "Fresh and seasonal fruits", Icon: Apple },
+] as const;
 const ROLE_INTENTS: Record<UserRole, string[]> = {
   FARMER: ["PRODUCES"],
   WHOLESALER: ["BUYS", "SELLS", "HANDLES"],
@@ -55,6 +68,9 @@ export default function CompleteRegistrationPage() {
   const [loadingLocationIndex, setLoadingLocationIndex] = useState<number | null>(null);
   const [selections, setSelections] = useState<Record<string, string>>({});
   const [productSearch, setProductSearch] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState<
+    (typeof INTEREST_CATEGORIES)[number]["name"] | null
+  >(null);
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -83,6 +99,12 @@ export default function CompleteRegistrationPage() {
         setSelections(
           Object.fromEntries(draft.product_selections.map((item) => [item.id, item.intent]))
         );
+        const firstInterest = draft.product_selections[0];
+        if (firstInterest) {
+          setSelectedCategory(
+            firstInterest.category === "Fruits" ? "Fruits" : "Vegetables"
+          );
+        }
 
         const pathIds = draft.location_id_path || [];
         const levels = [roots];
@@ -130,14 +152,34 @@ export default function CompleteRegistrationPage() {
 
   const role = registration?.role || "FARMER";
   const intents = ROLE_INTENTS[role];
+  const roleLabel = role
+    .toLowerCase()
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+  const productQuestion =
+    role === "FARMER"
+      ? "Which products do you produce or sell?"
+      : "Which products do you need or want to purchase?";
   const latestLocationId = locationIds[locationIds.length - 1] || "";
-  const filteredProductTypes = useMemo(
-    () => productTypes.filter((product) => product.name.toLowerCase().includes(productSearch.toLowerCase().trim())),
-    [productSearch, productTypes]
+  const selectedProductTypes = useMemo(
+    () => productTypes.filter((product) => selections[product.id]),
+    [productTypes, selections]
   );
-  const availableCategories = useMemo(
-    () => Array.from(new Set(filteredProductTypes.map((item) => item.category))),
-    [filteredProductTypes]
+  const filteredProductTypes = useMemo(
+    () =>
+      productTypes.filter((product) => {
+        const belongsToCategory =
+          selectedCategory === "Fruits"
+            ? product.category === "Fruits"
+            : selectedCategory === "Vegetables"
+              ? product.category === "Vegetables" || product.category === "Root Crops"
+              : false;
+        return (
+          belongsToCategory &&
+          product.name.toLowerCase().includes(productSearch.trim().toLowerCase())
+        );
+      }),
+    [productSearch, productTypes, selectedCategory]
   );
 
   function update<K extends keyof DraftForm>(key: K, value: DraftForm[K]) {
@@ -209,15 +251,22 @@ export default function CompleteRegistrationPage() {
     }
   }, [form, latestLocationId, selections]);
 
+  const registrationStatus = registration?.status;
+
   useEffect(() => {
-    if (!registration || !form || registration.status === "SUBMITTED" || registration.status === "APPROVED") {
+    if (
+      !registrationStatus ||
+      !form ||
+      registrationStatus === "SUBMITTED" ||
+      registrationStatus === "APPROVED"
+    ) {
       return;
     }
     const timer = window.setTimeout(() => {
       void saveDraft(false);
     }, 900);
     return () => window.clearTimeout(timer);
-  }, [form, locationIds, registration, saveDraft, selections]);
+  }, [form, locationIds, registrationStatus, saveDraft, selections]);
 
   async function uploadDocument(file?: File) {
     if (!file) return;
@@ -423,50 +472,185 @@ export default function CompleteRegistrationPage() {
 
           {step === 2 && (
             <>
-              <h2 className="text-lg font-semibold">Agricultural products</h2>
+              <h2 className="text-lg font-semibold">Your marketplace preferences</h2>
+              <p className="text-sm text-gray-600">
+                Your role is <span className="font-semibold text-gray-900">{roleLabel}</span>.
+              </p>
+              <h3 className="font-medium text-gray-800">{productQuestion}</h3>
               {!productTypes.length ? (
                 <p className="text-sm text-gray-600">No agricultural product catalog is available yet.</p>
               ) : (
                 <>
-                  <Field label="Search agricultural products" htmlFor="product-search">
-                    <Input id="product-search" value={productSearch} onChange={(event) => setProductSearch(event.target.value)} placeholder="Search products" />
-                  </Field>
-                  {availableCategories.map((category) => (
-                  <div key={category} className="space-y-2">
-                    <h3 className="font-medium text-gray-800">{category}</h3>
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      {filteredProductTypes.filter((product) => product.category === category).map((product) => {
-                        const intent = selections[product.id];
-                        return (
-                          <div key={product.id} className="flex items-center gap-3 rounded border border-gray-100 p-3">
-                            <input
-                              id={`product-${product.id}`}
-                              type="checkbox"
-                              checked={Boolean(intent)}
-                              onChange={(e) => setSelections((current) => {
-                                const next = { ...current };
-                                if (e.target.checked) next[product.id] = intents[0];
-                                else delete next[product.id];
-                                return next;
-                              })}
-                            />
-                            <label htmlFor={`product-${product.id}`} className="flex-1 text-sm">{product.name}</label>
-                            {intent && intents.length > 1 && (
-                              <Select
-                                aria-label={`${product.name} intent`}
-                                value={intent}
-                                className="w-32"
-                                onChange={(e) => setSelections((current) => ({ ...current, [product.id]: e.target.value }))}
-                              >
-                                {intents.map((value) => <option key={value} value={value}>{value.toLowerCase()}</option>)}
-                              </Select>
+                  <div className="grid gap-3 sm:grid-cols-2" aria-label="Choose a main product category">
+                    {INTEREST_CATEGORIES.map(({ name, description, Icon }) => {
+                      const count = selectedProductTypes.filter((product) =>
+                        name === "Fruits"
+                          ? product.category === "Fruits"
+                          : product.category === "Vegetables" || product.category === "Root Crops"
+                      ).length;
+                      const active = selectedCategory === name;
+                      return (
+                        <button
+                          key={name}
+                          type="button"
+                          aria-pressed={active}
+                          onClick={() => {
+                            setSelectedCategory(name);
+                            setProductSearch("");
+                            setError("");
+                          }}
+                          className={`flex min-h-24 items-center gap-4 rounded-xl border p-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-600 focus-visible:ring-offset-2 ${
+                            active
+                              ? "border-green-600 bg-green-50 ring-1 ring-green-600"
+                              : "border-gray-200 bg-white hover:border-green-300 hover:bg-green-50/40"
+                          }`}
+                        >
+                          <span
+                            className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-lg ${
+                              active ? "bg-green-600 text-white" : "bg-green-50 text-green-700"
+                            }`}
+                          >
+                            <Icon className="h-6 w-6" aria-hidden="true" />
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block font-semibold text-gray-900">{name}</span>
+                            <span className="mt-0.5 block text-sm text-gray-500">{description}</span>
+                            {count > 0 && (
+                              <span className="mt-1 block text-xs font-medium text-green-700">
+                                {count} selected
+                              </span>
                             )}
-                          </div>
-                        );
-                      })}
-                    </div>
+                          </span>
+                          {active && (
+                            <CheckCircle2
+                              className="h-5 w-5 shrink-0 text-green-700"
+                              aria-hidden="true"
+                            />
+                          )}
+                        </button>
+                      );
+                    })}
                   </div>
-                  ))}
+
+                  {selectedCategory && (
+                    <div className="space-y-4">
+                      <Field
+                        label={`Search ${selectedCategory.toLowerCase()}`}
+                        htmlFor="product-search"
+                      >
+                        <Input
+                          id="product-search"
+                          type="search"
+                          value={productSearch}
+                          onChange={(event) => setProductSearch(event.target.value)}
+                          placeholder={`Search ${selectedCategory.toLowerCase()} by name`}
+                        />
+                      </Field>
+                      {filteredProductTypes.length ? (
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          {filteredProductTypes.map((product) => {
+                            const intent = selections[product.id];
+                            return (
+                              <div
+                                key={product.id}
+                                className={`flex items-center gap-3 rounded-xl border p-3 transition-colors ${
+                                  intent
+                                    ? "border-green-300 bg-green-50"
+                                    : "border-gray-200 bg-white hover:border-gray-300"
+                                }`}
+                              >
+                                <input
+                                  id={`product-${product.id}`}
+                                  type="checkbox"
+                                  checked={Boolean(intent)}
+                                  onChange={(event) =>
+                                    setSelections((current) => {
+                                      const next = { ...current };
+                                      if (event.target.checked) next[product.id] = intents[0];
+                                      else delete next[product.id];
+                                      return next;
+                                    })
+                                  }
+                                  className="h-4 w-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
+                                />
+                                <label
+                                  htmlFor={`product-${product.id}`}
+                                  className="min-w-0 flex-1 cursor-pointer text-sm font-medium text-gray-800"
+                                >
+                                  {product.name}
+                                  {product.category === "Root Crops" && (
+                                    <span className="ml-1 text-xs font-normal text-gray-500">
+                                      · root vegetable
+                                    </span>
+                                  )}
+                                </label>
+                                {intent && intents.length > 1 && (
+                                  <Select
+                                    aria-label={`${product.name} interest`}
+                                    value={intent}
+                                    className="w-32"
+                                    onChange={(event) =>
+                                      setSelections((current) => ({
+                                        ...current,
+                                        [product.id]: event.target.value,
+                                      }))
+                                    }
+                                  >
+                                    {intents.map((value) => (
+                                      <option key={value} value={value}>
+                                        {value.toLowerCase()}
+                                      </option>
+                                    ))}
+                                  </Select>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <p
+                          role="status"
+                          className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600"
+                        >
+                          No {selectedCategory.toLowerCase()} match “{productSearch}”. Try another search.
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <h4 className="text-sm font-semibold text-gray-800">
+                      Selected products ({selectedProductTypes.length})
+                    </h4>
+                    {selectedProductTypes.length ? (
+                      <ul className="flex flex-wrap gap-2" aria-label="Selected product interests">
+                        {selectedProductTypes.map((product) => (
+                          <li
+                            key={product.id}
+                            className="inline-flex items-center gap-1 rounded-full border border-green-200 bg-green-50 py-1 pl-3 pr-1 text-sm text-green-800"
+                          >
+                            <span>{product.name}</span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setSelections((current) => {
+                                  const next = { ...current };
+                                  delete next[product.id];
+                                  return next;
+                                })
+                              }
+                              aria-label={`Remove ${product.name}`}
+                              className="rounded-full p-1 text-green-700 hover:bg-green-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-600"
+                            >
+                              <X className="h-3.5 w-3.5" aria-hidden="true" />
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-sm text-gray-500">Choose at least one product to continue.</p>
+                    )}
+                  </div>
                 </>
               )}
               <p className="text-xs text-gray-500">This selection records your interests or production only. It does not create marketplace listings.</p>
@@ -535,7 +719,21 @@ export default function CompleteRegistrationPage() {
             <div className="flex gap-2">
               <Button type="button" variant="secondary" loading={saving} onClick={() => void saveDraft()}>Save draft</Button>
               {step < STEPS.length - 1 ? (
-                <Button type="button" onClick={async () => { if (await saveDraft()) setStep((current) => current + 1); }}>
+                <Button
+                  type="button"
+                  loading={saving}
+                  onClick={async () => {
+                    if (step === 2 && (!selectedCategory || selectedProductTypes.length === 0)) {
+                      setError(
+                        !selectedCategory
+                          ? "Choose Vegetables or Fruits, then select at least one product."
+                          : "Choose at least one product before continuing."
+                      );
+                      return;
+                    }
+                    if (await saveDraft()) setStep((current) => current + 1);
+                  }}
+                >
                   Continue <ChevronRight className="h-4 w-4" />
                 </Button>
               ) : (

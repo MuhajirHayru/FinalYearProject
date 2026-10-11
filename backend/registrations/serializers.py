@@ -4,6 +4,7 @@ from pathlib import Path
 from PIL import Image, UnidentifiedImageError
 from rest_framework import serializers
 
+from products.models import Category
 from users.models import Role
 
 from .models import (
@@ -61,7 +62,10 @@ class AgriculturalProductTypeSerializer(serializers.ModelSerializer):
 
 class RegistrationProductSelectionInputSerializer(serializers.Serializer):
     product_type = serializers.PrimaryKeyRelatedField(
-        queryset=AgriculturalProductType.objects.filter(active=True)
+        queryset=AgriculturalProductType.objects.filter(
+            active=True,
+            category__in=(Category.VEGETABLES, Category.ROOT_CROPS, Category.FRUITS),
+        )
     )
     intent = serializers.ChoiceField(choices=RegistrationProductSelection.Intent.choices)
 
