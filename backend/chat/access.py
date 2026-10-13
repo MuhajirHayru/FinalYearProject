@@ -1,6 +1,6 @@
 from django.db.models import Q
 
-from users.models import Role, User
+from users.models import AccountStatus, Role, User
 
 
 ALLOWED_COUNTERPARTIES = {
@@ -121,6 +121,26 @@ def related_user_admin_ids(actor):
         .values_list("pk", flat=True)
     )
     return permitted_ids
+
+
+def eligible_staff_recipients(actor, search=""):
+    """Return active staff accounts the actor is allowed to contact."""
+    candidates = User.objects.filter(
+        role__in=(Role.USER_ADMIN, Role.FINANCIAL_MANAGER, Role.SUPER_ADMIN),
+        status=AccountStatus.APPROVED,
+        is_active=True,
+    ).exclude(pk=actor.pk)
+    search = (search or "").strip()
+    if search:
+        candidates = candidates.filter(
+            Q(full_name__icontains=search)
+            | Q(role__icontains=search)
+            | Q(location__icontains=search)
+        )
+    candidates = candidates.select_related(
+        "administrative_scope__location"
+    ).order_by("full_name", "pk")
+    return [candidate for candidate in candidates if can_communicate(actor, candidate)]
 
 
 def can_access_channel(actor, channel):

@@ -6,6 +6,7 @@ from .views import (
     ChatChannelViewSet,
     ChatMessageAudioView,
     MarkChannelReadView,
+    StaffRecipientsView,
     VoiceMessageModerationViewSet,
 )
 
@@ -23,6 +24,7 @@ router.register(
 )
 
 urlpatterns = router.urls + [
+    path("staff-recipients/", StaffRecipientsView.as_view(), name="chat-staff-recipients"),
     path(
         "channels/<uuid:channel_pk>/messages/<uuid:message_pk>/audio/",
         ChatMessageAudioView.as_view(),

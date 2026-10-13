@@ -22,6 +22,7 @@ import type {
   BankAccount,
   BankAccountFullDetails,
   ChatChannel,
+  StaffRecipient,
   DirectoryUser,
   FarmerDashboardData,
   FinancialReport,
@@ -34,7 +35,10 @@ import type {
   Notification,
   BusinessAgreement,
   RegistrationDetails,
+  ManagedAdministrativeLocation,
+  ManagedRegistrationProductType,
   RegistrationDocument,
+  RegistrationFormFieldConfiguration,
   RegistrationLocation,
   RegistrationProductType,
   Order,
@@ -58,6 +62,7 @@ import type {
   SuperAdminRow,
   TransactionVolume,
   User,
+  UserRole,
   Wallet,
   WalletPayoutDetail,
   WalletFundingRequest,
@@ -66,6 +71,7 @@ import type {
   WalletActivityReport,
   WalletTransaction,
   WholesalerDashboardData,
+  WebsiteContent,
   WithResource,
 } from "@/lib/types";
 
@@ -406,7 +412,7 @@ export const authApi = {
 
   me: () => get<MeResponse>("/auth/me/"),
 
-  updateProfile: (data: Partial<Pick<User, "full_name" | "phone" | "location" | "latitude" | "longitude">>) =>
+  updateProfile: (data: Partial<Pick<User, "full_name" | "phone">>) =>
     patch<{ success: true; user: User }>("/auth/profile/", data),
 
   updatePhoto: (file: File) => {
@@ -428,13 +434,22 @@ export const authApi = {
 };
 
 export const registrationApi = {
+  formFields: (stage: "INITIAL" | "PROFILE", role: UserRole) =>
+    get<{ results: RegistrationFormFieldConfiguration[] }>(
+      "/registration/form-fields/",
+      { stage, role }
+    ).then((response) => response.results),
   locations: (parentId?: string) =>
     apiFetch<RegistrationLocation[]>(
       `/registration/locations/${parentId ? `?parent_id=${encodeURIComponent(parentId)}` : ""}`
     ),
   productTypes: () =>
     apiFetch<RegistrationProductType[]>("/registration/product-types/"),
-  getDraft: () => registrationFetch<RegistrationDetails>("/me/"),
+  getDraft: () =>
+    typeof window !== "undefined" &&
+    sessionStorage.getItem(REGISTRATION_TOKEN_KEY)
+      ? registrationFetch<RegistrationDetails>("/me/")
+      : get<RegistrationDetails>("/registration/me/"),
   saveDraft: (data: Partial<{
     full_name: string;
     phone: string;
@@ -444,11 +459,17 @@ export const registrationApi = {
     business_address: string;
     location: string | null;
     product_selections: { product_type: string; intent: string }[];
-  }>) =>
-    registrationFetch<RegistrationDetails>("/me/", {
-      method: "PATCH",
-      body: JSON.stringify(data),
-    }),
+  }>) => {
+    const hasCompletionToken =
+      typeof window !== "undefined" &&
+      Boolean(sessionStorage.getItem(REGISTRATION_TOKEN_KEY));
+    return hasCompletionToken
+      ? registrationFetch<RegistrationDetails>("/me/", {
+          method: "PATCH",
+          body: JSON.stringify(data),
+        })
+      : patch<RegistrationDetails>("/registration/me/", data);
+  },
   uploadDocument: (file: File) => {
     const body = new FormData();
     body.append("file", file);
@@ -464,6 +485,10 @@ export const registrationApi = {
       "/me/submit/",
       { method: "POST", body: JSON.stringify({ confirm: true }) }
     ),
+};
+
+export const websiteContentApi = {
+  public: () => apiFetch<WebsiteContent>("/auth/website-content/"),
 };
 
 export const registrationAdminApi = {
@@ -606,6 +631,8 @@ export const productsApi = {
 
 export const chatApi = {
   channels: () => get<Paginated<ChatChannel>>("/chat/channels/"),
+  staffRecipients: (search?: string) =>
+    get<{ results: StaffRecipient[] }>("/chat/staff-recipients/", { search }),
 
   channel: (id: string) => get<ChatChannel>(`/chat/channels/${id}/`),
 
@@ -1058,6 +1085,68 @@ export const superAdminApi = {
 
   settings: () =>
     get<WithResource<"settings", PlatformSettings>>("/superadmin/settings/"),
+
+  websiteContent: () =>
+    get<WebsiteContent>("/superadmin/website-content/"),
+
+  updateWebsiteContent: (data: FormData) =>
+    apiFetch<{ success: true; website_content: WebsiteContent }>(
+      "/superadmin/website-content/",
+      { method: "PATCH", body: data }
+    ),
+
+  managedLocations: () =>
+    get<ManagedAdministrativeLocation[]>("/superadmin/locations/"),
+  createLocation: (data: {
+    source_id: string;
+    name: string;
+    level: string;
+    parent: string | null;
+    alternative_names: string[];
+  }) => post<ManagedAdministrativeLocation>("/superadmin/locations/", data),
+  updateLocation: (
+    id: string,
+    data: Partial<ManagedAdministrativeLocation>
+  ) => patch<ManagedAdministrativeLocation>(`/superadmin/locations/${id}/`, data),
+  deactivateLocation: (id: string) =>
+    del<Record<string, never>>(`/superadmin/locations/${id}/`),
+  managedProductTypes: () =>
+    get<ManagedRegistrationProductType[]>("/superadmin/product-types/"),
+  createProductType: (data: {
+    code: string;
+    name: string;
+    category: string;
+  }) => post<ManagedRegistrationProductType>("/superadmin/product-types/", data),
+  updateProductType: (
+    id: string,
+    data: Partial<ManagedRegistrationProductType>
+  ) => patch<ManagedRegistrationProductType>(`/superadmin/product-types/${id}/`, data),
+  deactivateProductType: (id: string) =>
+    del<Record<string, never>>(`/superadmin/product-types/${id}/`),
+  registrationFields: () =>
+    get<RegistrationFormFieldConfiguration[]>(
+      "/superadmin/registration-fields/"
+    ),
+  updateRegistrationField: (
+    id: number,
+    data: Partial<
+      Pick<
+        RegistrationFormFieldConfiguration,
+        | "label"
+        | "description"
+        | "required"
+        | "visible"
+        | "display_order"
+        | "roles"
+        | "options"
+        | "editable_after_approval"
+      >
+    >
+  ) =>
+    patch<RegistrationFormFieldConfiguration>(
+      `/superadmin/registration-fields/${id}/`,
+      data
+    ),
 
   updateSettings: (data: Partial<PlatformSettings> & { reason?: string }) =>
     patch<

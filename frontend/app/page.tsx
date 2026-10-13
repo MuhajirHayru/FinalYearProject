@@ -18,51 +18,50 @@ import {
   UserCheck,
 } from "lucide-react";
 import { getDashboardRoute, useAuth } from "@/lib/auth/context";
+import { BrandMark } from "@/components/branding/BrandMark";
+import { useWebsiteContent } from "@/components/branding/WebsiteContentProvider";
 
 const ROLES = [
   {
     role: "Farmers",
     icon: Leaf,
     tone: "bg-green-600",
-    blurb:
-      "List your produce, track orders as they arrive, negotiate in chat and get paid through verified bank transfers.",
+    contentKey: "farmer_description",
   },
   {
     role: "Wholesalers",
     icon: Truck,
     tone: "bg-blue-600",
-    blurb:
-      "Source directly from farmers, place bulk orders, follow fulfilment status and keep every receipt on file.",
+    contentKey: "wholesaler_description",
   },
   {
     role: "Retailers",
     icon: Store,
     tone: "bg-purple-600",
-    blurb:
-      "Discover wholesale listings ranked by proximity to your registered location and contact the supplier directly.",
+    contentKey: "retailer_description",
   },
 ];
 
 const FEATURES = [
   {
     icon: BadgeCheck,
-    title: "Verified accounts",
-    body: "Every commercial account is reviewed by a User Admin before it can trade.",
+    titleKey: "feature_verified_title",
+    bodyKey: "feature_verified_description",
   },
   {
     icon: CreditCard,
-    title: "Verified payments",
-    body: "Financial Managers verify bank transfer references, flag mismatches and resolve disputes.",
+    titleKey: "feature_payments_title",
+    bodyKey: "feature_payments_description",
   },
   {
     icon: MessageSquare,
-    title: "Real-time chat",
-    body: "Every conversation is attached to a listing or order, so the whole trade is on the record.",
+    titleKey: "feature_chat_title",
+    bodyKey: "feature_chat_description",
   },
   {
     icon: ShieldCheck,
-    title: "Audited staff actions",
-    body: "Approvals, suspensions, verifications and overrides are written to an immutable audit log.",
+    titleKey: "feature_audit_title",
+    bodyKey: "feature_audit_description",
   },
 ];
 
@@ -77,6 +76,8 @@ const SCREENS = [
 
 export default function HomePage() {
   const { user, isLoading } = useAuth();
+  const { website } = useWebsiteContent();
+  const copy = website.content;
   const router = useRouter();
 
   useEffect(() => {
@@ -88,8 +89,11 @@ export default function HomePage() {
       <header className="border-b border-gray-100">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <div className="flex items-center gap-2">
-            <Leaf className="h-6 w-6 text-green-600" />
-            <span className="text-lg font-bold">GreenPath</span>
+            <BrandMark
+              className="gap-2"
+              iconClassName="h-6 w-6"
+              nameClassName="text-lg font-bold"
+            />
           </div>
           <nav className="flex items-center gap-2">
             <Link
@@ -125,36 +129,48 @@ export default function HomePage() {
         </div>
       </header>
 
-      <section className="mx-auto max-w-6xl px-6 py-20 text-center">
+      <section
+        className="mx-auto max-w-6xl rounded-3xl px-6 py-20 text-center"
+        style={
+          website.hero_image_url
+            ? {
+                backgroundImage: `linear-gradient(rgba(255,255,255,.88), rgba(255,255,255,.92)), url("${website.hero_image_url}")`,
+                backgroundPosition: "center",
+                backgroundSize: "cover",
+              }
+            : undefined
+        }
+      >
         {isLoading ? (
           <p className="text-sm text-gray-400">Loading...</p>
         ) : (
           <>
             <span className="inline-flex items-center gap-2 rounded-full bg-green-50 px-4 py-1.5 text-xs font-semibold text-green-700">
               <Leaf className="h-3.5 w-3.5" />
-              AI-integrated farm-to-marketplace
+              {copy.landing_badge}
             </span>
             <h1 className="mx-auto mt-6 max-w-3xl text-4xl font-bold leading-tight sm:text-5xl">
-              Connect Ethiopian farmers directly to wholesale buyers
+              {copy.landing_title}
             </h1>
             <p className="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-gray-600">
-              GreenPath replaces middlemen with a single audited platform: farmers
-              publish produce, wholesalers and retailers order in bulk, and every
-              payment is verified before it is released.
+              {copy.landing_subtitle}
+            </p>
+            <p className="mx-auto mt-3 max-w-2xl text-sm leading-relaxed text-gray-600">
+              {copy.landing_description}
             </p>
             <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
               <Link
                 href="/register"
                 className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-6 py-3 text-sm font-semibold text-white hover:bg-green-700"
               >
-                Start trading
+                {copy.landing_primary_button}
                 <ArrowRight className="h-4 w-4" />
               </Link>
               <Link
                 href="/login"
                 className="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-6 py-3 text-sm font-semibold text-gray-700 hover:border-gray-400"
               >
-                Sign in
+                {copy.landing_secondary_button}
               </Link>
             </div>
             <p className="mt-4 text-xs text-gray-500">
@@ -167,10 +183,9 @@ export default function HomePage() {
 
       <section className="bg-gray-50 py-16">
         <div className="mx-auto max-w-6xl px-6">
-          <h2 className="text-center text-2xl font-bold">Built for every side of the trade</h2>
+          <h2 className="text-center text-2xl font-bold">{copy.marketplace_title}</h2>
           <p className="mx-auto mt-3 max-w-2xl text-center text-sm text-gray-600">
-            One platform, three commercial roles, and the staff oversight that keeps it
-            trustworthy.
+            {copy.marketplace_description}
           </p>
           <div className="mt-10 grid gap-6 md:grid-cols-3">
             {ROLES.map((r) => {
@@ -186,7 +201,9 @@ export default function HomePage() {
                     <Icon className="h-6 w-6" />
                   </span>
                   <h3 className="mt-4 text-lg font-bold">{r.role}</h3>
-                  <p className="mt-2 text-sm leading-relaxed text-gray-600">{r.blurb}</p>
+                  <p className="mt-2 text-sm leading-relaxed text-gray-600">
+                    {copy[r.contentKey] || ""}
+                  </p>
                 </div>
               );
             })}
@@ -196,15 +213,20 @@ export default function HomePage() {
 
       <section className="py-16">
         <div className="mx-auto max-w-6xl px-6">
-          <h2 className="text-center text-2xl font-bold">How GreenPath is kept honest</h2>
+          <h2 className="text-center text-2xl font-bold">{copy.about_title}</h2>
+          <p className="mx-auto mt-3 max-w-2xl text-center text-sm text-gray-600">
+            {copy.about_description}
+          </p>
           <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {FEATURES.map((f) => {
               const Icon = f.icon;
               return (
-                <div key={f.title} className="rounded-xl border border-gray-200 p-5">
+                <div key={f.titleKey} className="rounded-xl border border-gray-200 p-5">
                   <Icon className="h-6 w-6 text-green-600" />
-                  <h3 className="mt-3 text-base font-semibold">{f.title}</h3>
-                  <p className="mt-1.5 text-sm leading-relaxed text-gray-600">{f.body}</p>
+                  <h3 className="mt-3 text-base font-semibold">{copy[f.titleKey] || ""}</h3>
+                  <p className="mt-1.5 text-sm leading-relaxed text-gray-600">
+                    {copy[f.bodyKey] || ""}
+                  </p>
                 </div>
               );
             })}
@@ -241,7 +263,14 @@ export default function HomePage() {
 
       <footer className="border-t border-gray-100 py-8">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-6 text-xs text-gray-500">
-          <span>GreenPath &mdash; Django, DRF, Channels, React and Next.js.</span>
+          <div>
+            <p>{copy.footer_text}</p>
+            {(copy.contact_email || copy.contact_phone) && (
+              <p className="mt-1">
+                {[copy.contact_email, copy.contact_phone].filter(Boolean).join(" · ")}
+              </p>
+            )}
+          </div>
           <Link
             href="/public-announcement"
             className="inline-flex items-center gap-1.5 font-medium text-gray-600 hover:text-green-700"

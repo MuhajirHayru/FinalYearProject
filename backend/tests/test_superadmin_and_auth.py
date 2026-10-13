@@ -440,13 +440,42 @@ def test_profile_update_lets_users_change_contact_fields(api, farmer):
     api.force_authenticate(user=farmer)
     response = api.patch(
         "/api/v1/auth/profile/",
-        {"phone": "+251911999999", "location": "Bahir Dar"},
+        {"phone": "+251911999999"},
         format="json",
     )
     assert response.status_code == 200
     farmer.refresh_from_db()
     assert farmer.phone == "+251911999999"
-    assert farmer.location == "Bahir Dar"
+
+
+def test_profile_update_requires_configured_location_selection(api, farmer):
+    api.force_authenticate(user=farmer)
+    response = api.patch(
+        "/api/v1/auth/profile/",
+        {"location": "Bahir Dar"},
+        format="json",
+    )
+    assert response.status_code == 400
+    assert "location" in response.data["error"]
+
+
+def test_profile_update_obeys_post_approval_field_configuration(api, farmer):
+    from registrations.models import RegistrationFieldConfiguration
+
+    phone_field = RegistrationFieldConfiguration.objects.get(
+        stage=RegistrationFieldConfiguration.Stage.PROFILE,
+        field_key="phone",
+    )
+    phone_field.editable_after_approval = False
+    phone_field.save(update_fields=["editable_after_approval"])
+    api.force_authenticate(user=farmer)
+    response = api.patch(
+        "/api/v1/auth/profile/",
+        {"phone": "+251911999999"},
+        format="json",
+    )
+    assert response.status_code == 400
+    assert "phone" in response.data["error"]
 
 
 def test_profile_update_never_escalates_the_role(api, farmer):

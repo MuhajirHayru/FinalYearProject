@@ -15,6 +15,8 @@ import {
 import { ApiRequestError } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/context";
 import { Button, ErrorBanner, Input, SuccessBanner } from "@/components/ui";
+import { BrandMark } from "@/components/branding/BrandMark";
+import { useWebsiteContent } from "@/components/branding/WebsiteContentProvider";
 
 const DEMO_ACCOUNTS = [
   {
@@ -69,6 +71,8 @@ export default function LoginPage() {
 
 function LoginForm() {
   const router = useRouter();
+  const { website } = useWebsiteContent();
+  const copy = website.content;
   const searchParams = useSearchParams();
   const { login, isAuthenticated, isLoading: authLoading, user } = useAuth();
 
@@ -172,20 +176,18 @@ function LoginForm() {
   return (
     <div className="flex min-h-screen">
       <div className="hidden w-1/2 flex-col justify-between bg-green-700 p-12 text-white lg:flex">
-        <div className="flex items-center gap-3">
-          <Leaf className="h-8 w-8" />
-          <span className="text-2xl font-bold">Green Path</span>
-        </div>
+        <BrandMark
+          className="gap-3"
+          iconClassName="h-8 w-8 text-white"
+          nameClassName="text-2xl font-bold text-white"
+        />
 
         <div className="space-y-8">
           <h1 className="text-4xl font-bold leading-tight">
-            AI-Integrated
-            <br />
-            Farm-to-Marketplace
+            {copy.landing_badge}
           </h1>
           <p className="max-w-md text-lg text-green-100">
-            Connecting Ethiopian farmers directly to wholesalers and retailers -
-            transparent pricing, verified payments, real-time chat.
+            {copy.landing_subtitle}
           </p>
 
           <div className="space-y-4">
@@ -206,16 +208,17 @@ function LoginForm() {
         </div>
 
         <p className="text-sm text-green-200">
-          (c) 2025 Green Path - Addis Ababa, Ethiopia
+          {copy.footer_text}
         </p>
       </div>
 
       <div className="flex flex-1 items-center justify-center bg-gray-50 p-6">
         <div className="w-full max-w-md">
-          <div className="mb-8 flex items-center gap-2 lg:hidden">
-            <Leaf className="h-7 w-7 text-green-600" />
-            <span className="text-xl font-bold text-gray-900">Green Path</span>
-          </div>
+          <BrandMark
+            className="mb-8 gap-2 lg:hidden"
+            iconClassName="h-7 w-7 text-green-600"
+            nameClassName="text-xl font-bold text-gray-900"
+          />
 
           <div className="mb-8">
             <h2 className="text-2xl font-bold text-gray-900">Sign in</h2>

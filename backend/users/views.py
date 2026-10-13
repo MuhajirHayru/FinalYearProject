@@ -20,7 +20,14 @@ from rest_framework.throttling import ScopedRateThrottle
 from registrations.authentication import make_registration_token
 from registrations.models import UserRegistration
 from .authentication import password_token_version, token_matches_password
-from .models import AccountStatus, AuditLog, PlatformSettings, User
+from .models import (
+    AccountStatus,
+    AuditLog,
+    PlatformSettings,
+    User,
+    WebsiteContent,
+    default_website_content,
+)
 from .recovery import RecoveryDeliveryError, send_password_reset
 from .serializers import (
     LoginSerializer,
@@ -440,6 +447,43 @@ class UpdateProfilePhotoView(views.APIView):
 
 
 @extend_schema(responses=OpenApiTypes.OBJECT)
+class WebsiteContentView(views.APIView):
+    """GET /api/v1/auth/website-content/ — public, database-backed site content."""
+
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        website = WebsiteContent.load()
+        defaults = default_website_content()
+        configured = website.content if isinstance(website.content, dict) else {}
+        return Response(
+            {
+                "platform_name": website.platform_name or "Green Path",
+                "logo_url": (
+                    request.build_absolute_uri(website.logo.url)
+                    if website.logo
+                    else None
+                ),
+                "favicon_url": (
+                    request.build_absolute_uri(website.favicon.url)
+                    if website.favicon
+                    else None
+                ),
+                "hero_image_url": (
+                    request.build_absolute_uri(website.hero_image.url)
+                    if website.hero_image
+                    else None
+                ),
+                "content": {**defaults, **configured},
+                "updated_at": website.updated_at,
+                "updated_by": (
+                    website.updated_by.full_name if website.updated_by else None
+                ),
+            }
+        )
+
+
 class AnnouncementView(views.APIView):
     """GET /api/v1/auth/announcement/ — platform banner (FR-SA-04)."""
 

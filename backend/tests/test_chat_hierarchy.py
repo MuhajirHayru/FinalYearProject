@@ -138,3 +138,79 @@ def test_top_level_admin_can_message_scoped_admin(api, scoped_admins, super_admi
     )
 
     assert response.status_code == 201, response.data
+
+
+def test_staff_recipient_list_uses_active_accounts_and_administrative_scope(
+    api, scoped_admins, super_admin, financial_manager
+):
+    regional_admin, zonal_admin, unrelated_admin = scoped_admins
+    AdministratorScope.objects.create(
+        user=super_admin,
+        level=AdministratorScope.Level.GLOBAL,
+    )
+    api.force_authenticate(user=regional_admin)
+
+    response = api.get("/api/v1/chat/staff-recipients/")
+
+    assert response.status_code == 200, response.data
+    recipient_ids = {row["id"] for row in response.data["results"]}
+    assert str(zonal_admin.pk) in recipient_ids
+    assert str(super_admin.pk) in recipient_ids
+    assert str(financial_manager.pk) in recipient_ids
+    assert str(unrelated_admin.pk) not in recipient_ids
+
+    unrelated_admin.suspend(actor=super_admin, reason="Inactive test recipient")
+    response = api.get("/api/v1/chat/staff-recipients/")
+    assert str(unrelated_admin.pk) not in {row["id"] for row in response.data["results"]}
+
+
+def test_non_staff_cannot_load_staff_recipients(api, farmer):
+    api.force_authenticate(user=farmer)
+
+    response = api.get("/api/v1/chat/staff-recipients/")
+
+    assert response.status_code == 403
+
+
+def test_staff_conversation_requires_single_active_authorized_recipient(
+    api, scoped_admins, super_admin
+):
+    regional_admin, _, unrelated_admin = scoped_admins
+    AdministratorScope.objects.create(
+        user=super_admin,
+        level=AdministratorScope.Level.GLOBAL,
+    )
+    api.force_authenticate(user=regional_admin)
+
+    group_attempt = api.post(
+        "/api/v1/chat/channels/",
+        {"participant_ids": [str(super_admin.pk), str(unrelated_admin.pk)]},
+        format="json",
+    )
+    unrelated_attempt = api.post(
+        "/api/v1/chat/channels/",
+        {"participant_ids": [str(unrelated_admin.pk)]},
+        format="json",
+    )
+
+    assert group_attempt.status_code == 400
+    assert unrelated_attempt.status_code == 403
+
+
+def test_new_staff_chat_reuses_only_existing_one_to_one_staff_channel(
+    api, scoped_admins
+):
+    regional_admin, zonal_admin, _ = scoped_admins
+    existing = ChatChannel.objects.create()
+    existing.participants.add(regional_admin, zonal_admin)
+    api.force_authenticate(user=regional_admin)
+
+    response = api.post(
+        "/api/v1/chat/channels/",
+        {"participant_ids": [str(zonal_admin.pk)]},
+        format="json",
+    )
+
+    assert response.status_code == 201, response.data
+    assert response.data["channel"]["id"] == str(existing.pk)
+    assert ChatChannel.objects.count() == 1

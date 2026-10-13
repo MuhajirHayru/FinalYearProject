@@ -34,6 +34,10 @@ class RegistrationCompletionAuthentication(authentication.BaseAuthentication):
                 salt=REGISTRATION_TOKEN_SALT,
                 max_age=REGISTRATION_TOKEN_MAX_AGE,
             )
+        except (signing.BadSignature, signing.SignatureExpired):
+            return None
+
+        try:
             if payload.get("purpose") != "complete-registration":
                 raise exceptions.AuthenticationFailed("Invalid registration credential.")
             user = User.objects.get(
@@ -42,8 +46,6 @@ class RegistrationCompletionAuthentication(authentication.BaseAuthentication):
             )
             registration = user.registration
         except (
-            signing.BadSignature,
-            signing.SignatureExpired,
             ValueError,
             User.DoesNotExist,
             ObjectDoesNotExist,

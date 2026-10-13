@@ -1,5 +1,6 @@
 import uuid
 from datetime import timedelta
+from pathlib import Path
 
 from django.conf import settings
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
@@ -246,6 +247,88 @@ class PlatformSettings(models.Model):
     def load(cls):
         obj, _ = cls.objects.get_or_create(pk=cls.SINGLETON_PK)
         return obj
+
+
+def website_asset_path(instance, filename):
+    extension = Path(filename).suffix.lower()
+    return f"website-assets/{uuid.uuid4().hex}{extension}"
+
+
+def default_website_content():
+    return {
+        "landing_badge": "AI-integrated farm-to-marketplace",
+        "landing_title": "Connect Ethiopian farmers directly to wholesale buyers",
+        "landing_subtitle": "A trusted marketplace for every side of the agricultural trade.",
+        "landing_description": (
+            "GreenPath connects farmers, wholesalers and retailers with verified "
+            "accounts, transparent transactions and secure payments."
+        ),
+        "landing_primary_button": "Start trading",
+        "landing_secondary_button": "Sign in",
+        "about_title": "About the platform",
+        "about_description": "A single audited platform for agricultural trade.",
+        "marketplace_title": "Built for every side of the trade",
+        "marketplace_description": "One platform, three commercial roles, and staff oversight.",
+        "farmer_description": "List your produce and manage orders.",
+        "wholesaler_description": "Source directly from farmers and manage bulk orders.",
+        "retailer_description": "Discover wholesale listings and contact suppliers.",
+        "feature_verified_title": "Verified accounts",
+        "feature_verified_description": "Commercial accounts are reviewed before trading.",
+        "feature_payments_title": "Verified payments",
+        "feature_payments_description": "Financial Managers verify transfers and resolve disputes.",
+        "feature_chat_title": "Real-time chat",
+        "feature_chat_description": "Trade conversations stay on the record.",
+        "feature_audit_title": "Audited staff actions",
+        "feature_audit_description": "Privileged actions are recorded in the audit log.",
+        "footer_text": "GreenPath — Farm-to-Marketplace",
+        "contact_email": "",
+        "contact_phone": "",
+    }
+
+
+class WebsiteContent(models.Model):
+    """Persistent public branding and editable website copy."""
+
+    SINGLETON_PK = 1
+
+    platform_name = models.CharField(max_length=80, default="Green Path")
+    content = models.JSONField(default=default_website_content, blank=True)
+    logo = models.ImageField(
+        upload_to=website_asset_path,
+        blank=True,
+        validators=[FileExtensionValidator(["jpg", "jpeg", "png", "webp"])],
+    )
+    favicon = models.ImageField(
+        upload_to=website_asset_path,
+        blank=True,
+        validators=[FileExtensionValidator(["jpg", "jpeg", "png", "webp", "ico"])],
+    )
+    hero_image = models.ImageField(
+        upload_to=website_asset_path,
+        blank=True,
+        validators=[FileExtensionValidator(["jpg", "jpeg", "png", "webp"])],
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="website_content_updates",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "website_content"
+        verbose_name = "website content"
+        verbose_name_plural = "website content"
+
+    def __str__(self):
+        return self.platform_name
+
+    @classmethod
+    def load(cls):
+        content, _ = cls.objects.get_or_create(pk=cls.SINGLETON_PK)
+        return content
 
 
 class AuditLog(models.Model):

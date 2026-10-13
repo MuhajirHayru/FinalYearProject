@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { CheckCircle, Leaf, Store, Warehouse } from "lucide-react";
 import {
   authApi,
+  registrationApi,
   setRegistrationCompletionToken,
 } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/context";
@@ -17,6 +18,48 @@ import {
   Select,
   SuccessBanner,
 } from "@/components/ui";
+import { BrandMark } from "@/components/branding/BrandMark";
+import { useWebsiteContent } from "@/components/branding/WebsiteContentProvider";
+import type { RegistrationFormFieldConfiguration } from "@/lib/types";
+
+const INITIAL_FIELD_DEFAULTS: Omit<RegistrationFormFieldConfiguration, "id" | "updated_at">[] = [
+  {
+    field_key: "full_name",
+    stage: "INITIAL",
+    label: "Full name",
+    description: "",
+    required: true,
+    visible: true,
+    display_order: 1,
+    roles: ["FARMER", "WHOLESALER", "RETAILER"],
+    options: [],
+    editable_after_approval: false,
+  },
+  {
+    field_key: "email",
+    stage: "INITIAL",
+    label: "Email address",
+    description: "",
+    required: true,
+    visible: true,
+    display_order: 2,
+    roles: ["FARMER", "WHOLESALER", "RETAILER"],
+    options: [],
+    editable_after_approval: false,
+  },
+  {
+    field_key: "phone",
+    stage: "INITIAL",
+    label: "Phone",
+    description: "",
+    required: true,
+    visible: true,
+    display_order: 3,
+    roles: ["FARMER", "WHOLESALER", "RETAILER"],
+    options: [],
+    editable_after_approval: false,
+  },
+];
 
 const ROLES = [
   {
@@ -62,11 +105,16 @@ const EMPTY: Form = {
 export default function RegisterPage() {
   const router = useRouter();
   const { isAuthenticated, isLoading } = useAuth();
+  const { website } = useWebsiteContent();
+  const copy = website.content;
   const [form, setForm] = useState<Form>(EMPTY);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [announcement, setAnnouncement] = useState("");
+  const [fieldConfigurations, setFieldConfigurations] =
+    useState<RegistrationFormFieldConfiguration[]>([]);
+  const [fieldConfigurationWarning, setFieldConfigurationWarning] = useState("");
 
   useEffect(() => {
     if (!isLoading && isAuthenticated) router.replace("/");
@@ -79,6 +127,33 @@ export default function RegisterPage() {
       .catch(() => undefined);
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    registrationApi
+      .formFields("INITIAL", form.role as "FARMER" | "WHOLESALER" | "RETAILER")
+      .then((fields) => {
+        if (cancelled) return;
+        setFieldConfigurations(fields);
+        setFieldConfigurationWarning("");
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setFieldConfigurations(
+          INITIAL_FIELD_DEFAULTS.map((field, index) => ({
+            ...field,
+            id: index,
+            updated_at: "",
+          }))
+        );
+        setFieldConfigurationWarning(
+          "Registration settings could not be loaded. Safe default fields are shown."
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [form.role]);
+
   function set<K extends keyof Form>(key: K, value: Form[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
     setFieldErrors((prev) => {
@@ -89,10 +164,63 @@ export default function RegisterPage() {
     });
   }
 
+  function renderInitialField(field: RegistrationFormFieldConfiguration) {
+    switch (field.field_key) {
+      case "full_name":
+        return (
+          <Field key={field.id} label={field.label} htmlFor="full_name" error={fieldErrors.full_name} hint={field.description}>
+            <Input
+              id="full_name"
+              required={field.required}
+              value={form.full_name}
+              onChange={(event) => set("full_name", event.target.value)}
+              placeholder="Abebe Mengesha"
+              autoComplete="name"
+            />
+          </Field>
+        );
+      case "email":
+        return (
+          <Field key={field.id} label={field.label} htmlFor="email" error={fieldErrors.email} hint={field.description}>
+            <Input
+              id="email"
+              type="email"
+              required={field.required}
+              value={form.email}
+              onChange={(event) => set("email", event.target.value)}
+              placeholder="you@example.com"
+              autoComplete="email"
+            />
+          </Field>
+        );
+      case "phone":
+        return (
+          <Field key={field.id} label={field.label} htmlFor="phone" error={fieldErrors.phone} hint={field.description}>
+            <Input
+              id="phone"
+              required={field.required}
+              value={form.phone}
+              onChange={(event) => set("phone", event.target.value)}
+              placeholder="+251 9xx xxx xxx"
+              autoComplete="tel"
+            />
+          </Field>
+        );
+      default:
+        return null;
+    }
+  }
+
   function validate(): boolean {
     const errs: Record<string, string> = {};
-    if (!form.full_name.trim()) errs.full_name = "Full name is required.";
+    const configurations = Object.fromEntries(
+      fieldConfigurations.map((field) => [field.field_key, field])
+    );
+    if (configurations.full_name?.required && !form.full_name.trim())
+      errs.full_name = `${configurations.full_name.label} is required.`;
     if (!/^\S+@\S+\.\S+$/.test(form.email)) errs.email = "Enter a valid email.";
+    if (configurations.phone?.visible && configurations.phone.required && !form.phone.trim())
+      errs.phone = `${configurations.phone.label} is required.`;
     if (form.password.length < 8)
       errs.password = "Password must be at least 8 characters.";
     if (form.password !== form.password_confirm)
@@ -116,7 +244,9 @@ export default function RegisterPage() {
         password: form.password,
         role: form.role,
         privacy_policy_accepted: form.privacy_policy_accepted,
-        phone: form.phone.trim() || undefined,
+        ...(configuredFields.phone?.visible === false
+          ? {}
+          : { phone: form.phone.trim() || undefined }),
       });
       setRegistrationCompletionToken(result.completion_token);
       router.push("/complete-registration");
@@ -147,33 +277,43 @@ export default function RegisterPage() {
   }
 
   const selectedRole = ROLES.find((r) => r.value === form.role)!;
+  const configuredFields = Object.fromEntries(
+    fieldConfigurations.map((field) => [field.field_key, field])
+  );
 
   return (
     <div className="flex min-h-screen bg-gray-50">
       <div className="hidden w-1/3 flex-col justify-between bg-green-700 p-10 text-white lg:flex">
-        <Link href="/" className="flex items-center gap-3">
-          <Leaf className="h-8 w-8" />
-          <span className="text-2xl font-bold">Green Path</span>
+        <Link href="/">
+          <BrandMark
+            className="gap-3"
+            iconClassName="h-8 w-8 text-white"
+            nameClassName="text-2xl font-bold text-white"
+          />
         </Link>
         <div>
           <h1 className="text-3xl font-bold leading-tight">
             Join the marketplace
           </h1>
           <p className="mt-4 text-green-100">
+            {copy.landing_subtitle}
+          </p>
+          <p className="mt-2 text-sm text-green-100">
             New farmer, wholesaler and retailer accounts are reviewed by a User
             Admin before they can sign in. This keeps every trade counterparty
             verified.
           </p>
         </div>
-        <p className="text-sm text-green-200">(c) 2025 Green Path</p>
+        <p className="text-sm text-green-200">{copy.footer_text}</p>
       </div>
 
       <div className="flex flex-1 items-center justify-center p-6">
         <div className="w-full max-w-2xl">
-          <div className="mb-6 flex items-center gap-2 lg:hidden">
-            <Leaf className="h-7 w-7 text-green-600" />
-            <span className="text-xl font-bold text-gray-900">Green Path</span>
-          </div>
+          <BrandMark
+            className="mb-6 gap-2 lg:hidden"
+            iconClassName="h-7 w-7 text-green-600"
+            nameClassName="text-xl font-bold text-gray-900"
+          />
 
           <h2 className="text-2xl font-bold text-gray-900">Create account</h2>
           <p className="mt-1 text-sm text-gray-500">
@@ -184,6 +324,12 @@ export default function RegisterPage() {
             <div className="mt-4">
               <SuccessBanner message={announcement} />
             </div>
+          )}
+
+          {fieldConfigurationWarning && (
+            <p role="status" className="mt-4 rounded bg-amber-50 p-3 text-sm text-amber-800">
+              {fieldConfigurationWarning}
+            </p>
           )}
 
           {error && (
@@ -231,37 +377,10 @@ export default function RegisterPage() {
             </div>
 
             <div className="grid gap-5 sm:grid-cols-2">
-              <Field label="Full name" htmlFor="full_name" error={fieldErrors.full_name}>
-                <Input
-                  id="full_name"
-                  value={form.full_name}
-                  onChange={(e) => set("full_name", e.target.value)}
-                  placeholder="Abebe Mengesha"
-                  autoComplete="name"
-                />
-              </Field>
-
-              <Field label="Email address" htmlFor="email" error={fieldErrors.email}>
-                <Input
-                  id="email"
-                  type="email"
-                  value={form.email}
-                  onChange={(e) => set("email", e.target.value)}
-                  placeholder="you@example.com"
-                  autoComplete="email"
-                />
-              </Field>
-
-              <Field label="Phone" htmlFor="phone" error={fieldErrors.phone}>
-                <Input
-                  id="phone"
-                  value={form.phone}
-                  onChange={(e) => set("phone", e.target.value)}
-                  placeholder="+251 9xx xxx xxx"
-                  autoComplete="tel"
-                />
-              </Field>
-
+              {fieldConfigurations
+                .filter((field) => field.visible)
+                .sort((left, right) => left.display_order - right.display_order)
+                .map(renderInitialField)}
             </div>
 
             <div className="grid gap-5 sm:grid-cols-2">

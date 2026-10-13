@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 
-from .models import AuditLog, PlatformSettings, User
+from .models import AuditLog, PlatformSettings, User, WebsiteContent
 
 
 @admin.register(User)
@@ -39,6 +39,14 @@ class PlatformSettingsAdmin(admin.ModelAdmin):
     def has_add_permission(self, request):
         # Singleton row only (pk=1).
         return not PlatformSettings.objects.exists()
+
+
+@admin.register(WebsiteContent)
+class WebsiteContentAdmin(admin.ModelAdmin):
+    list_display = ("platform_name", "updated_by", "updated_at")
+
+    def has_add_permission(self, request):
+        return not WebsiteContent.objects.exists()
 
 
 @admin.register(AuditLog)

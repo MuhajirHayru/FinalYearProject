@@ -3,7 +3,18 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Mic, MessageSquare, Search, Send, Square, Wifi, WifiOff, X } from "lucide-react";
+import {
+  Mic,
+  MessageSquare,
+  Plus,
+  Search,
+  Send,
+  Square,
+  UserRound,
+  Wifi,
+  WifiOff,
+  X,
+} from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
 import { FinanciallyVerifiedBadge } from "@/components/users/FinanciallyVerifiedBadge";
 import {
@@ -22,7 +33,7 @@ import {
 import { WS_BASE, chatApi, getAccessToken } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/context";
 import { formatDateTime, formatTime, dayKey, dayLabel, shortRelative } from "@/lib/format";
-import type { ChatChannel, Message } from "@/lib/types";
+import type { ChatChannel, Message, StaffRecipient } from "@/lib/types";
 
 type SocketState = "connecting" | "live" | "polling";
 
@@ -69,6 +80,11 @@ function ChatView() {
   const [query, setQuery] = useState("");
   const [socket, setSocket] = useState<SocketState>("connecting");
   const [peerTyping, setPeerTyping] = useState(false);
+  const [recipientPickerOpen, setRecipientPickerOpen] = useState(false);
+  const [recipients, setRecipients] = useState<StaffRecipient[]>([]);
+  const [recipientSearch, setRecipientSearch] = useState("");
+  const [loadingRecipients, setLoadingRecipients] = useState(false);
+  const [openingRecipientId, setOpeningRecipientId] = useState("");
 
   const socketRef = useRef<WebSocket | null>(null);
   const pendingDraftRef = useRef("");
@@ -288,6 +304,60 @@ function ChatView() {
       );
     });
   }, [channels, query]);
+
+  const visibleRecipients = useMemo(() => {
+    const term = recipientSearch.trim().toLowerCase();
+    if (!term) return recipients;
+    return recipients.filter((recipient) =>
+      [recipient.full_name, recipient.role_display, recipient.scope]
+        .join(" ")
+        .toLowerCase()
+        .includes(term)
+    );
+  }, [recipients, recipientSearch]);
+
+  const isStaff =
+    user?.role === "USER_ADMIN" ||
+    user?.role === "FINANCIAL_MANAGER" ||
+    user?.role === "SUPER_ADMIN";
+
+  async function openRecipientPicker() {
+    setRecipientPickerOpen(true);
+    setRecipientSearch("");
+    setLoadingRecipients(true);
+    setError("");
+    try {
+      const response = await chatApi.staffRecipients();
+      setRecipients(response.results);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load eligible staff.");
+      setRecipientPickerOpen(false);
+    } finally {
+      setLoadingRecipients(false);
+    }
+  }
+
+  async function openStaffConversation(recipient: StaffRecipient) {
+    setOpeningRecipientId(recipient.id);
+    setError("");
+    try {
+      const response = await chatApi.openChannel(recipient.id);
+      const channel = response.channel;
+      setChannels((previous) =>
+        previous.some((item) => item.id === channel.id)
+          ? previous
+          : [channel, ...previous]
+      );
+      setActiveId(channel.id);
+      setMessages([]);
+      setLoadingMessages(true);
+      setRecipientPickerOpen(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not open this conversation.");
+    } finally {
+      setOpeningRecipientId("");
+    }
+  }
 
   function notifyTyping() {
     const ws = socketRef.current;
@@ -509,9 +579,21 @@ function ChatView() {
         <div>
           <h2 className="text-lg font-bold text-gray-900">Messages</h2>
           <p className="mt-1 text-sm text-gray-500">
-            Negotiations are tied to a listing or order and stay on the record.
+            {isStaff
+              ? "Contact staff members available within your administrative permissions."
+              : "Negotiations are tied to a listing or order and stay on the record."}
           </p>
         </div>
+        <div className="flex items-center gap-3">
+        {isStaff && (
+          <Button
+            type="button"
+            icon={<Plus className="h-4 w-4" />}
+            onClick={() => void openRecipientPicker()}
+          >
+            New Chat
+          </Button>
+        )}
         <span
           className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${
             socket === "live"
@@ -535,6 +617,7 @@ function ChatView() {
           )}
           {socket === "live" ? "Live" : socket === "connecting" ? "Connecting" : "Polling"}
         </span>
+        </div>
       </div>
 
       {error && (
@@ -545,6 +628,92 @@ function ChatView() {
       {notice && (
         <div role="status" className="mb-5 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
           {notice}
+        </div>
+      )}
+
+      {recipientPickerOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-gray-950/40 p-0 sm:items-center sm:p-4"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setRecipientPickerOpen(false);
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="staff-recipient-title"
+            className="max-h-[85vh] w-full max-w-lg overflow-hidden rounded-t-2xl bg-white shadow-xl sm:rounded-2xl"
+          >
+            <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
+              <div>
+                <h2 id="staff-recipient-title" className="font-semibold text-gray-900">
+                  Start a staff conversation
+                </h2>
+                <p className="mt-1 text-xs text-gray-500">
+                  Only staff you are authorized to contact are shown.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRecipientPickerOpen(false)}
+                aria-label="Close recipient selection"
+                className="rounded-lg p-2 text-gray-500 hover:bg-gray-100"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="border-b border-gray-100 p-4">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                <Input
+                  aria-label="Search eligible staff"
+                  value={recipientSearch}
+                  onChange={(event) => setRecipientSearch(event.target.value)}
+                  placeholder="Search staff or administrative scope"
+                  className="pl-9"
+                />
+              </div>
+            </div>
+            <ul className="max-h-[55vh] divide-y divide-gray-100 overflow-y-auto">
+              {loadingRecipients ? (
+                <li className="flex items-center justify-center gap-2 px-5 py-10 text-sm text-gray-500">
+                  <Spinner className="h-4 w-4" />
+                  Loading eligible staff...
+                </li>
+              ) : visibleRecipients.length ? (
+                visibleRecipients.map((recipient) => (
+                  <li key={recipient.id}>
+                    <button
+                      type="button"
+                      disabled={Boolean(openingRecipientId)}
+                      onClick={() => void openStaffConversation(recipient)}
+                      className="flex w-full items-center gap-3 px-5 py-4 text-left hover:bg-gray-50 disabled:opacity-60"
+                    >
+                      <span className="flex h-10 w-10 items-center justify-center rounded-full bg-green-50 text-green-700">
+                        <UserRound className="h-5 w-5" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-semibold text-gray-900">
+                          {recipient.full_name}
+                        </span>
+                        <span className="mt-0.5 block truncate text-xs text-gray-500">
+                          {recipient.role_display} · {recipient.scope || recipient.location || "Platform"}
+                        </span>
+                      </span>
+                      {openingRecipientId === recipient.id && <Spinner className="h-4 w-4" />}
+                    </button>
+                  </li>
+                ))
+              ) : (
+                <li className="px-5 py-10 text-center text-sm text-gray-500">
+                  {recipients.length
+                    ? "No eligible staff match your search."
+                    : "There are no active staff members available to contact."}
+                </li>
+              )}
+            </ul>
+          </section>
         </div>
       )}
 
@@ -617,7 +786,11 @@ function ChatView() {
         <Card>
           <EmptyState
             title="No conversations yet"
-            description="Start one from a listing detail page or an order row."
+            description={
+              isStaff
+                ? "Start a staff conversation, or open a buyer-seller conversation from a listing or order."
+                : "Start one from a listing detail page or an order row."
+            }
             icon={<MessageSquare className="h-8 w-8" />}
           />
         </Card>

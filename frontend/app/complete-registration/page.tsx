@@ -30,8 +30,10 @@ import type {
   RegistrationDetails,
   RegistrationLocation,
   RegistrationProductType,
+  RegistrationFormFieldConfiguration,
   UserRole,
 } from "@/lib/types";
+import { BrandMark } from "@/components/branding/BrandMark";
 
 const STEPS = ["Your details", "Location", "Products", "Documents", "Review"];
 const INTEREST_CATEGORIES = [
@@ -57,11 +59,94 @@ type DraftForm = {
   location: string;
 };
 
+type DefaultProfileField = Omit<
+  RegistrationFormFieldConfiguration,
+  "id" | "updated_at"
+>;
+
+function defaultProfileField(
+  field_key: string,
+  label: string,
+  roles: UserRole[],
+  required: boolean,
+  display_order: number,
+  options: { value: string; label: string }[] = []
+): DefaultProfileField {
+  return {
+  field_key,
+  stage: "PROFILE",
+  label,
+  description: "",
+  required,
+  visible: true,
+  display_order,
+  roles,
+  options,
+  editable_after_approval: false,
+  };
+}
+
+const PROFILE_FIELD_DEFAULTS: DefaultProfileField[] = [
+  defaultProfileField("date_of_birth", "Date of birth", ["FARMER"], true, 1),
+  defaultProfileField(
+    "sex",
+    "Sex",
+    ["FARMER"],
+    true,
+    2,
+    [
+      { value: "FEMALE", label: "Female" },
+      { value: "MALE", label: "Male" },
+      { value: "OTHER", label: "Other" },
+      { value: "PREFER_NOT_TO_SAY", label: "Prefer not to say" },
+    ]
+  ),
+  defaultProfileField(
+    "business_name",
+    "Business name",
+    ["WHOLESALER", "RETAILER"],
+    true,
+    3
+  ),
+  defaultProfileField(
+    "business_address",
+    "Business address",
+    ["WHOLESALER", "RETAILER"],
+    false,
+    4
+  ),
+  defaultProfileField(
+    "phone",
+    "Phone",
+    ["FARMER", "WHOLESALER", "RETAILER"],
+    true,
+    5
+  ),
+  defaultProfileField(
+    "location",
+    "Administrative location",
+    ["FARMER", "WHOLESALER", "RETAILER"],
+    true,
+    6
+  ),
+  defaultProfileField(
+    "product_selections",
+    "Product interests",
+    ["FARMER", "WHOLESALER", "RETAILER"],
+    true,
+    7
+  ),
+];
+
 export default function CompleteRegistrationPage() {
   const router = useRouter();
   const [registration, setRegistration] = useState<RegistrationDetails | null>(null);
   const [form, setForm] = useState<DraftForm | null>(null);
   const [productTypes, setProductTypes] = useState<RegistrationProductType[]>([]);
+  const [fieldConfigurations, setFieldConfigurations] = useState<
+    RegistrationFormFieldConfiguration[]
+  >([]);
+  const [fieldConfigurationWarning, setFieldConfigurationWarning] = useState("");
   const [locationLevels, setLocationLevels] = useState<RegistrationLocation[][]>([]);
   const [locationIds, setLocationIds] = useState<string[]>([]);
   const [locationSearch, setLocationSearch] = useState<Record<number, string>>({});
@@ -87,6 +172,20 @@ export default function CompleteRegistrationPage() {
         if (cancelled) return;
         setRegistration(draft);
         setProductTypes(products);
+        try {
+          setFieldConfigurations(await registrationApi.formFields("PROFILE", draft.role));
+        } catch {
+          setFieldConfigurations(
+            PROFILE_FIELD_DEFAULTS.map((field, index) => ({
+              ...field,
+              id: index,
+              updated_at: "",
+            })).filter((field) => field.roles.includes(draft.role))
+          );
+          setFieldConfigurationWarning(
+            "Profile settings could not be loaded. Safe default fields are shown."
+          );
+        }
         setForm({
           full_name: draft.full_name,
           phone: draft.phone,
@@ -151,11 +250,29 @@ export default function CompleteRegistrationPage() {
   }, [complete, router]);
 
   const role = registration?.role || "FARMER";
+  const registrationStatus = registration?.status;
+  const fieldsByKey = useMemo(
+    () => Object.fromEntries(fieldConfigurations.map((field) => [field.field_key, field])),
+    [fieldConfigurations]
+  );
+  const visibleProfileFields = useMemo(
+    () =>
+      fieldConfigurations
+        .filter(
+          (field) =>
+            field.visible &&
+            (registration?.status !== "APPROVED" || field.editable_after_approval)
+        )
+        .sort((left, right) => left.display_order - right.display_order),
+    [fieldConfigurations, registration?.status]
+  );
+  const hasEditableFields = visibleProfileFields.length > 0;
   const intents = ROLE_INTENTS[role];
   const roleLabel = role
     .toLowerCase()
     .replaceAll("_", " ")
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
+  const steps = registration?.status === "APPROVED" ? ["Profile"] : STEPS;
   const productQuestion =
     role === "FARMER"
       ? "Which products do you produce or sell?"
@@ -229,19 +346,53 @@ export default function CompleteRegistrationPage() {
       setNotice("");
     }
     try {
-      const saved = await registrationApi.saveDraft({
-        date_of_birth: form.date_of_birth || null,
-        sex: form.sex,
-        business_name: form.business_name.trim(),
-        business_address: form.business_address.trim(),
-        location: latestLocationId || null,
-        product_selections: Object.entries(selections).map(([product_type, intent]) => ({
-          product_type,
-          intent,
-        })),
-      });
+      const profileStatus = registrationStatus;
+      const payload: Parameters<typeof registrationApi.saveDraft>[0] = {};
+      for (const field of fieldConfigurations) {
+        if (
+          !field.visible ||
+          (profileStatus === "APPROVED" && !field.editable_after_approval)
+        ) {
+          continue;
+        }
+        switch (field.field_key) {
+          case "phone":
+            payload.phone = form.phone.trim();
+            break;
+          case "date_of_birth":
+            payload.date_of_birth = form.date_of_birth || null;
+            break;
+          case "sex":
+            payload.sex = form.sex;
+            break;
+          case "business_name":
+            payload.business_name = form.business_name.trim();
+            break;
+          case "business_address":
+            payload.business_address = form.business_address.trim();
+            break;
+          case "location":
+            payload.location = latestLocationId || null;
+            break;
+          case "product_selections":
+            payload.product_selections = Object.entries(selections).map(
+              ([product_type, intent]) => ({ product_type, intent })
+            );
+            break;
+        }
+      }
+      if (profileStatus === "APPROVED" && Object.keys(payload).length === 0) {
+        if (announce) setNotice("There are no profile fields currently editable.");
+        return null;
+      }
+      const saved = await registrationApi.saveDraft(payload);
       setRegistration(saved);
-      if (announce) setNotice("Draft saved securely.");
+      if (announce)
+        setNotice(
+          profileStatus === "APPROVED"
+            ? "Profile changes saved."
+            : "Draft saved securely."
+        );
       return saved;
     } catch (err) {
       if (announce) setError(err instanceof Error ? err.message : "Could not save your draft.");
@@ -249,16 +400,14 @@ export default function CompleteRegistrationPage() {
     } finally {
       setSaving(false);
     }
-  }, [form, latestLocationId, selections]);
-
-  const registrationStatus = registration?.status;
+  }, [fieldConfigurations, form, latestLocationId, registrationStatus, selections]);
 
   useEffect(() => {
     if (
       !registrationStatus ||
       !form ||
       registrationStatus === "SUBMITTED" ||
-      registrationStatus === "APPROVED"
+      (registrationStatus === "APPROVED" && !hasEditableFields)
     ) {
       return;
     }
@@ -266,7 +415,7 @@ export default function CompleteRegistrationPage() {
       void saveDraft(false);
     }, 900);
     return () => window.clearTimeout(timer);
-  }, [form, locationIds, registrationStatus, saveDraft, selections]);
+  }, [form, hasEditableFields, locationIds, registrationStatus, saveDraft, selections]);
 
   async function uploadDocument(file?: File) {
     if (!file) return;
@@ -304,6 +453,74 @@ export default function CompleteRegistrationPage() {
     }
   }
 
+  function renderProfileField(field: RegistrationFormFieldConfiguration) {
+    switch (field.field_key) {
+      case "phone":
+        return (
+          <Field key={field.id} label={field.label} htmlFor="registration-phone" hint={field.description}>
+            <Input
+              id="registration-phone"
+              value={form?.phone || ""}
+              required={field.required}
+              onChange={(event) => update("phone", event.target.value)}
+            />
+          </Field>
+        );
+      case "date_of_birth":
+        return (
+          <Field key={field.id} label={field.label} htmlFor="registration-dob" hint={field.description}>
+            <Input
+              id="registration-dob"
+              type="date"
+              required={field.required}
+              value={form?.date_of_birth || ""}
+              onChange={(event) => update("date_of_birth", event.target.value)}
+            />
+          </Field>
+        );
+      case "sex":
+        return (
+          <Field key={field.id} label={field.label} htmlFor="registration-sex" hint={field.description}>
+            <Select
+              id="registration-sex"
+              required={field.required}
+              value={form?.sex || ""}
+              onChange={(event) => update("sex", event.target.value)}
+            >
+              <option value="">Select</option>
+              {field.options.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </Select>
+          </Field>
+        );
+      case "business_name":
+        return (
+          <Field key={field.id} label={field.label} htmlFor="registration-business" hint={field.description}>
+            <Input
+              id="registration-business"
+              required={field.required}
+              value={form?.business_name || ""}
+              onChange={(event) => update("business_name", event.target.value)}
+            />
+          </Field>
+        );
+      case "business_address":
+        return (
+          <Field key={field.id} label={field.label} htmlFor="registration-address" hint={field.description}>
+            <Textarea
+              id="registration-address"
+              required={field.required}
+              value={form?.business_address || ""}
+              onChange={(event) => update("business_address", event.target.value)}
+            />
+          </Field>
+        );
+      default:
+        return null;
+    }
+  }
+
   if (loading) return <PageLoader label="Loading your saved registration..." />;
   if (!form || !registration) {
     return (
@@ -336,15 +553,23 @@ export default function CompleteRegistrationPage() {
     <main className="min-h-screen bg-gray-50 px-4 py-8 sm:px-6">
       <div className="mx-auto max-w-3xl">
         <Link href="/" className="mb-6 inline-flex items-center gap-2 font-semibold text-green-800">
-          <Leaf className="h-6 w-6" /> Green Path
+          <BrandMark
+            iconClassName="h-6 w-6 text-white"
+            nameClassName="text-base font-semibold text-white"
+          />
         </Link>
-        <h1 className="mt-4 text-2xl font-bold text-gray-900">Complete your registration</h1>
+        <h1 className="mt-4 text-2xl font-bold text-gray-900">
+          {registration.status === "APPROVED" ? "Update your profile" : "Complete your registration"}
+        </h1>
         <p className="mt-1 text-sm text-gray-600">
           Complete your {role.toLowerCase()} profile. Your work is saved only to your pending application.
         </p>
 
-        <ol className="my-6 grid grid-cols-5 gap-2" aria-label="Registration steps">
-          {STEPS.map((label, index) => (
+        <ol
+          className={`my-6 grid ${steps.length === 1 ? "grid-cols-1" : "grid-cols-5"} gap-2`}
+          aria-label="Registration steps"
+        >
+          {steps.map((label, index) => (
             <li key={label}>
               <button
                 type="button"
@@ -359,6 +584,11 @@ export default function CompleteRegistrationPage() {
           ))}
         </ol>
         {error && <div className="mb-4"><ErrorBanner message={error} /></div>}
+        {fieldConfigurationWarning && (
+          <p role="status" className="mb-4 rounded bg-amber-50 p-3 text-sm text-amber-800">
+            {fieldConfigurationWarning}
+          </p>
+        )}
         {notice && <p role="status" className="mb-4 rounded bg-green-50 p-3 text-sm text-green-800">{notice}</p>}
 
         <section className="space-y-5 rounded-xl border border-gray-200 bg-white p-5 shadow-sm sm:p-7">
@@ -379,49 +609,28 @@ export default function CompleteRegistrationPage() {
                   </p>
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-gray-700">Phone</p>
-                  <p className="mt-1 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
-                    {registration.phone || "Not provided"}
-                  </p>
-                </div>
-                <div>
                   <p className="text-sm font-medium text-gray-700">Role</p>
                   <p className="mt-1 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
                     {role.toLowerCase()}
                   </p>
                 </div>
-                {role === "FARMER" ? (
-                  <>
-                    <Field label="Date of birth" htmlFor="registration-dob">
-                      <Input id="registration-dob" type="date" value={form.date_of_birth} onChange={(e) => update("date_of_birth", e.target.value)} />
-                    </Field>
-                    <Field label="Sex" htmlFor="registration-sex">
-                      <Select id="registration-sex" value={form.sex} onChange={(e) => update("sex", e.target.value)}>
-                        <option value="">Select</option>
-                        <option value="FEMALE">Female</option>
-                        <option value="MALE">Male</option>
-                        <option value="OTHER">Other</option>
-                        <option value="PREFER_NOT_TO_SAY">Prefer not to say</option>
-                      </Select>
-                    </Field>
-                  </>
-                ) : (
-                  <>
-                    <Field label="Business name" htmlFor="registration-business">
-                      <Input id="registration-business" value={form.business_name} onChange={(e) => update("business_name", e.target.value)} />
-                    </Field>
-                    <Field label="Business address" htmlFor="registration-address">
-                      <Textarea id="registration-address" value={form.business_address} onChange={(e) => update("business_address", e.target.value)} />
-                    </Field>
-                  </>
-                )}
+                {visibleProfileFields
+                  .filter((field) =>
+                    ["phone", "date_of_birth", "sex", "business_name", "business_address"].includes(field.field_key)
+                  )
+                  .map(renderProfileField)}
               </div>
             </>
           )}
 
           {step === 1 && (
             <>
-              <h2 className="text-lg font-semibold">Administrative location</h2>
+              <h2 className="text-lg font-semibold">
+                {fieldsByKey.location?.label || "Administrative location"}
+              </h2>
+              {fieldsByKey.location?.description && (
+                <p className="text-sm text-gray-600">{fieldsByKey.location.description}</p>
+              )}
               {locationLevels.length === 1 && locationLevels[0].length === 0 ? (
                 <p className="rounded-lg bg-amber-50 p-4 text-sm text-amber-900">
                   Verified location reference data has not been imported yet. Location selection is unavailable; an administrator must import the approved dataset before you can submit.
@@ -442,6 +651,7 @@ export default function CompleteRegistrationPage() {
                       <Select
                         value={locationIds[index] || ""}
                         disabled={loadingLocationIndex === index}
+                        required={fieldsByKey.location?.required && index === locationLevels.length - 1}
                         onChange={(e) => void chooseLocation(index, choices.find((item) => item.id === e.target.value) || null)}
                       >
                         <option value="">
@@ -472,7 +682,12 @@ export default function CompleteRegistrationPage() {
 
           {step === 2 && (
             <>
-              <h2 className="text-lg font-semibold">Your marketplace preferences</h2>
+              <h2 className="text-lg font-semibold">
+                {fieldsByKey.product_selections?.label || "Your marketplace preferences"}
+              </h2>
+              {fieldsByKey.product_selections?.description && (
+                <p className="text-sm text-gray-600">{fieldsByKey.product_selections.description}</p>
+              )}
               <p className="text-sm text-gray-600">
                 Your role is <span className="font-semibold text-gray-900">{roleLabel}</span>.
               </p>
@@ -657,7 +872,7 @@ export default function CompleteRegistrationPage() {
             </>
           )}
 
-          {step === 3 && (
+          {registration.status !== "APPROVED" && step === 3 && (
             <>
               <h2 className="text-lg font-semibold">License / verification document</h2>
               <p className="text-sm text-gray-600">PDF, JPG or PNG; maximum 10 MB. Files are private and only accessible to authorized reviewers.</p>
@@ -684,7 +899,7 @@ export default function CompleteRegistrationPage() {
             </>
           )}
 
-          {step === 4 && (
+          {registration.status !== "APPROVED" && step === 4 && (
             <>
               <h2 className="text-lg font-semibold">Review and submit</h2>
               <dl className="grid gap-3 text-sm sm:grid-cols-2">
@@ -717,8 +932,10 @@ export default function CompleteRegistrationPage() {
               <ChevronLeft className="h-4 w-4" /> Back
             </Button>
             <div className="flex gap-2">
-              <Button type="button" variant="secondary" loading={saving} onClick={() => void saveDraft()}>Save draft</Button>
-              {step < STEPS.length - 1 ? (
+              {registration.status !== "APPROVED" && (
+                <Button type="button" variant="secondary" loading={saving} onClick={() => void saveDraft()}>Save draft</Button>
+              )}
+              {step < steps.length - 1 ? (
                 <Button
                   type="button"
                   loading={saving}
@@ -735,6 +952,10 @@ export default function CompleteRegistrationPage() {
                   }}
                 >
                   Continue <ChevronRight className="h-4 w-4" />
+                </Button>
+              ) : registration.status === "APPROVED" ? (
+                <Button type="button" variant="secondary" loading={saving} onClick={() => void saveDraft()}>
+                  Save profile
                 </Button>
               ) : (
                 <Button type="button" loading={saving} disabled={!confirmed} onClick={() => void submitRegistration()}>Submit for review</Button>

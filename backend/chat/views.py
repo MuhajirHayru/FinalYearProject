@@ -21,6 +21,7 @@ from .access import (
     can_access_channel,
     can_communicate,
     can_moderate_voice,
+    eligible_staff_recipients,
     related_user_admin_ids,
 )
 from .models import (
@@ -83,16 +84,20 @@ class ChatChannelViewSet(
                 {"success": False, "error": "A participant is required."},
                 status=400,
             )
-        if not isinstance(participant_ids, (list, tuple)):
+        if not isinstance(participant_ids, (list, tuple)) or len(participant_ids) != 1:
             return Response(
-                {"success": False, "error": "participant_ids must be a list."},
+                {"success": False, "error": "Choose exactly one conversation partner."},
                 status=400,
             )
 
-        other = User.objects.filter(id__in=list(participant_ids)).first()
+        other = User.objects.filter(
+            id=participant_ids[0],
+            status="APPROVED",
+            is_active=True,
+        ).first()
         if other is None:
             return Response(
-                {"success": False, "error": "A valid participant is required."},
+                {"success": False, "error": "Choose an active, approved conversation partner."},
                 status=400,
             )
         if not can_communicate(request.user, other):
@@ -109,11 +114,36 @@ class ChatChannelViewSet(
         if product_id:
             product = Product.objects.filter(id=product_id).first()
 
-        channel = (
-            ChatChannel.objects.filter(participants=request.user)
-            .filter(participants=other)
-            .first()
+        is_staff_conversation = (
+            request.user.role
+            in (Role.USER_ADMIN, Role.FINANCIAL_MANAGER, Role.SUPER_ADMIN)
+            and other.role
+            in (Role.USER_ADMIN, Role.FINANCIAL_MANAGER, Role.SUPER_ADMIN)
         )
+        if is_staff_conversation:
+            channel = None
+            candidates = (
+                ChatChannel.objects.filter(
+                    participants=request.user,
+                    related_product__isnull=True,
+                )
+                .prefetch_related("participants")
+                .order_by("-last_message_at", "-created_at")
+            )
+            expected_participants = {request.user.pk, other.pk}
+            for candidate in candidates:
+                if {
+                    participant.pk
+                    for participant in candidate.participants.all()
+                } == expected_participants:
+                    channel = candidate
+                    break
+        else:
+            channel = (
+                ChatChannel.objects.filter(participants=request.user)
+                .filter(participants=other)
+                .first()
+            )
         if channel is None:
             channel = ChatChannel.objects.create(related_product=product)
             channel.participants.add(request.user, other)
@@ -129,6 +159,46 @@ class ChatChannelViewSet(
                 ).data,
             },
             status=201,
+        )
+
+
+class StaffRecipientsView(APIView):
+    """GET /api/v1/chat/staff-recipients/ — eligible staff only."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if request.user.role not in (
+            Role.USER_ADMIN,
+            Role.FINANCIAL_MANAGER,
+            Role.SUPER_ADMIN,
+        ):
+            raise PermissionDenied("Staff messaging is only available to staff.")
+        recipients = eligible_staff_recipients(
+            request.user, request.query_params.get("search", "")
+        )
+        return Response(
+            {
+                "results": [
+                    {
+                        "id": str(user.pk),
+                        "full_name": user.full_name,
+                        "role": user.role,
+                        "role_display": user.get_role_display(),
+                        "location": user.location,
+                        "scope": (
+                            "Nationwide"
+                            if getattr(user, "administrative_scope", None)
+                            and user.administrative_scope.level == "GLOBAL"
+                            else str(user.administrative_scope.location)
+                            if getattr(user, "administrative_scope", None)
+                            and user.administrative_scope.location_id
+                            else user.location
+                        ),
+                    }
+                    for user in recipients
+                ]
+            }
         )
 
 

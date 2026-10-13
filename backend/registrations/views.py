@@ -1,4 +1,5 @@
 from datetime import date
+import json
 from pathlib import Path
 
 from django.db import transaction
@@ -6,20 +7,23 @@ from django.db.models import Count, Q
 from django.http import FileResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from rest_framework import generics, permissions, status, views
+from rest_framework import generics, permissions, status, views, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
+from rest_framework_simplejwt.authentication import JWTAuthentication
 
 from notifications.services import notify
 from products.models import Category
 from users.models import AccountStatus, AuditLog, PlatformSettings, Role, User
+from users.permissions import IsSuperAdmin
 
 from .authentication import RegistrationCompletionAuthentication
 from .models import (
     AgriculturalProductType,
     AdministratorScope,
     AdministrativeLocation,
+    RegistrationFieldConfiguration,
     RegistrationDocument,
     RegistrationReview,
     RegistrationStatus,
@@ -28,12 +32,15 @@ from .models import (
 from .serializers import (
     AgriculturalProductTypeSerializer,
     LicenseVerificationSerializer,
+    ManagedAdministrativeLocationSerializer,
+    ManagedAgriculturalProductTypeSerializer,
     LocationSerializer,
     RegistrationDecisionSerializer,
     RegistrationDetailsSerializer,
     RegistrationDocumentSerializer,
     RegistrationDocumentUploadSerializer,
     RegistrationDraftSerializer,
+    RegistrationFieldConfigurationSerializer,
     RegistrationSubmissionSerializer,
     registration_can_be_submitted,
 )
@@ -71,8 +78,31 @@ class ProductTypeOptionsView(generics.ListAPIView):
     ).order_by("category", "name")
 
 
+class RegistrationFormFieldsView(views.APIView):
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        stage = request.query_params.get("stage")
+        role = request.query_params.get("role")
+        if stage not in RegistrationFieldConfiguration.Stage.values:
+            raise ValidationError({"stage": "Choose INITIAL or PROFILE."})
+        if role not in Role.values:
+            raise ValidationError({"role": "Choose a supported account role."})
+        fields = [
+            field
+            for field in RegistrationFieldConfiguration.objects.filter(stage=stage)
+            if role in field.roles
+        ]
+        serializer = RegistrationFieldConfigurationSerializer(fields, many=True)
+        return Response({"results": serializer.data})
+
+
 class RegistrationDraftView(views.APIView):
-    authentication_classes = [RegistrationCompletionAuthentication]
+    authentication_classes = [
+        RegistrationCompletionAuthentication,
+        JWTAuthentication,
+    ]
     permission_classes = [permissions.IsAuthenticated]
 
     def get_registration(self, user):
@@ -93,6 +123,7 @@ class RegistrationDraftView(views.APIView):
             RegistrationStatus.DRAFT,
             RegistrationStatus.CHANGES_REQUESTED,
             RegistrationStatus.REJECTED,
+            RegistrationStatus.APPROVED,
         ):
             return Response(
                 {"success": False, "error": "This registration can no longer be edited."},
@@ -101,7 +132,7 @@ class RegistrationDraftView(views.APIView):
         serializer = RegistrationDraftSerializer(
             data=request.data,
             partial=True,
-            context={"request": request},
+            context={"request": request, "registration": registration},
         )
         serializer.is_valid(raise_exception=True)
         with transaction.atomic():
@@ -520,3 +551,186 @@ class AdministratorScopeDetailView(generics.RetrieveUpdateAPIView):
             target=scope.user.email,
             detail=f"{previous} -> {scope.location or 'Nationwide'}",
         )
+
+
+class SuperAdminLocationViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsSuperAdmin]
+    serializer_class = ManagedAdministrativeLocationSerializer
+    queryset = AdministrativeLocation.objects.select_related("parent").all()
+    pagination_class = None
+
+    def perform_create(self, serializer):
+        location = serializer.save()
+        AuditLog.objects.create(
+            actor=self.request.user,
+            action="administrative_location_created",
+            target=str(location.pk),
+            detail=json.dumps(
+                {
+                    "source_id": location.source_id,
+                    "name": location.name,
+                    "level": location.level,
+                    "parent": location.parent_id,
+                    "active": location.active,
+                },
+                sort_keys=True,
+                default=str,
+            ),
+        )
+
+    def perform_update(self, serializer):
+        location = serializer.instance
+        previous = {
+            "source_id": location.source_id,
+            "name": location.name,
+            "level": location.level,
+            "parent": location.parent_id,
+            "active": location.active,
+        }
+        location = serializer.save()
+        current = {
+            "source_id": location.source_id,
+            "name": location.name,
+            "level": location.level,
+            "parent": location.parent_id,
+            "active": location.active,
+        }
+        if previous != current:
+            AuditLog.objects.create(
+                actor=self.request.user,
+                action="administrative_location_updated",
+                target=str(location.pk),
+                detail=json.dumps(
+                    {"previous": previous, "new": current},
+                    sort_keys=True,
+                    default=str,
+                ),
+            )
+
+    def perform_destroy(self, instance):
+        if instance.children.filter(active=True).exists():
+            raise ValidationError(
+                {"active": "Deactivate child locations before deactivating this parent."}
+            )
+        if instance.active:
+            instance.active = False
+            instance.save(update_fields=["active"])
+            AuditLog.objects.create(
+                actor=self.request.user,
+                action="administrative_location_deactivated",
+                target=str(instance.pk),
+                detail=json.dumps(
+                    {"name": instance.name, "source_id": instance.source_id},
+                    sort_keys=True,
+                ),
+            )
+
+
+class SuperAdminRegistrationFieldViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsSuperAdmin]
+    serializer_class = RegistrationFieldConfigurationSerializer
+    queryset = RegistrationFieldConfiguration.objects.all()
+    pagination_class = None
+    http_method_names = ["get", "patch", "head", "options"]
+
+    def perform_update(self, serializer):
+        field = serializer.instance
+        previous = {
+            "label": field.label,
+            "description": field.description,
+            "required": field.required,
+            "visible": field.visible,
+            "display_order": field.display_order,
+            "roles": field.roles,
+            "options": field.options,
+            "editable_after_approval": field.editable_after_approval,
+        }
+        field = serializer.save(updated_by=self.request.user)
+        current = {
+            "label": field.label,
+            "description": field.description,
+            "required": field.required,
+            "visible": field.visible,
+            "display_order": field.display_order,
+            "roles": field.roles,
+            "options": field.options,
+            "editable_after_approval": field.editable_after_approval,
+        }
+        if previous != current:
+            AuditLog.objects.create(
+                actor=self.request.user,
+                action="registration_field_configuration_updated",
+                target=f"{field.stage}:{field.field_key}",
+                detail=json.dumps(
+                    {"previous": previous, "new": current},
+                    sort_keys=True,
+                ),
+            )
+
+
+class SuperAdminProductTypeViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsSuperAdmin]
+    serializer_class = ManagedAgriculturalProductTypeSerializer
+    queryset = AgriculturalProductType.objects.all()
+    pagination_class = None
+
+    def perform_create(self, serializer):
+        product_type = serializer.save()
+        AuditLog.objects.create(
+            actor=self.request.user,
+            action="registration_product_option_created",
+            target=str(product_type.pk),
+            detail=json.dumps(
+                {
+                    "code": product_type.code,
+                    "name": product_type.name,
+                    "category": product_type.category,
+                    "active": product_type.active,
+                },
+                sort_keys=True,
+            ),
+        )
+
+    def perform_update(self, serializer):
+        product_type = serializer.instance
+        previous = {
+            "code": product_type.code,
+            "name": product_type.name,
+            "category": product_type.category,
+            "active": product_type.active,
+        }
+        product_type = serializer.save()
+        current = {
+            "code": product_type.code,
+            "name": product_type.name,
+            "category": product_type.category,
+            "active": product_type.active,
+        }
+        if previous != current:
+            AuditLog.objects.create(
+                actor=self.request.user,
+                action="registration_product_option_updated",
+                target=str(product_type.pk),
+                detail=json.dumps(
+                    {"previous": previous, "new": current},
+                    sort_keys=True,
+                ),
+            )
+
+    def perform_destroy(self, instance):
+        if instance.active:
+            instance.active = False
+            instance.save(update_fields=["active"])
+            AuditLog.objects.create(
+                actor=self.request.user,
+                action="registration_product_option_deactivated",
+                target=str(instance.pk),
+                detail=json.dumps(
+                    {
+                        "code": instance.code,
+                        "name": instance.name,
+                        "category": instance.category,
+                    },
+                    sort_keys=True,
+                ),
+            )

@@ -8,13 +8,25 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers, status
 from rest_framework.exceptions import APIException
 
-from registrations.models import AdministrativeLocation, AdministratorScope
+from registrations.models import (
+    AdministrativeLocation,
+    AdministratorScope,
+    RegistrationFieldConfiguration,
+)
 from registrations.services import (
     admin_scope_type_for_location,
     can_assign_admin_scope,
 )
 
-from .models import AccountStatus, AuditLog, PlatformSettings, Role, User
+from .models import (
+    AccountStatus,
+    AuditLog,
+    PlatformSettings,
+    Role,
+    User,
+    WebsiteContent,
+    default_website_content,
+)
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -61,6 +73,36 @@ class UserSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("A user with this email already exists.")
         return value.lower()
 
+    def validate(self, attrs):
+        role = attrs.get("role")
+        if role not in (Role.FARMER, Role.WHOLESALER, Role.RETAILER):
+            return attrs
+        configurations = {
+            field.field_key: field
+            for field in RegistrationFieldConfiguration.objects.filter(
+                stage=RegistrationFieldConfiguration.Stage.INITIAL
+            )
+            if role in field.roles
+        }
+        for field_key in ("full_name", "email"):
+            configuration = configurations.get(field_key)
+            if configuration is None or not configuration.visible or not configuration.required:
+                raise serializers.ValidationError(
+                    {field_key: "This required identity field is not configured correctly."}
+                )
+        phone_configuration = configurations.get("phone")
+        if phone_configuration is None:
+            raise serializers.ValidationError(
+                {"phone": "Phone configuration is unavailable for this role."}
+            )
+        if not phone_configuration.visible and attrs.get("phone"):
+            raise serializers.ValidationError(
+                {"phone": "Phone is not available for this registration role."}
+            )
+        if phone_configuration.required and not attrs.get("phone", "").strip():
+            raise serializers.ValidationError({"phone": "Phone is required."})
+        return attrs
+
     def create(self, validated_data):
         password = validated_data.pop("password")
         config = PlatformSettings.load()
@@ -82,22 +124,38 @@ class ProfileUpdateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ["full_name", "phone", "location", "latitude", "longitude"]
+        fields = ["full_name", "phone"]
         extra_kwargs = {field: {"required": False} for field in fields}
 
-    def validate_latitude(self, value):
-        if value is None:
-            return value
-        if not -90 <= float(value) <= 90:
-            raise serializers.ValidationError("Latitude must be between -90 and 90.")
-        return value
+    def validate(self, attrs):
+        errors = {}
+        if any(
+            field in self.initial_data
+            for field in ("location", "latitude", "longitude")
+        ):
+            errors["location"] = (
+                "Update location through Registration details using the configured location list."
+            )
 
-    def validate_longitude(self, value):
-        if value is None:
-            return value
-        if not -180 <= float(value) <= 180:
-            raise serializers.ValidationError("Longitude must be between -180 and 180.")
-        return value
+        user = self.instance
+        for field_key in ("full_name", "phone"):
+            if field_key not in attrs:
+                continue
+            configuration = RegistrationFieldConfiguration.objects.filter(
+                stage=RegistrationFieldConfiguration.Stage.PROFILE,
+                field_key=field_key,
+            ).first()
+            if (
+                configuration is None
+                or user.role not in configuration.roles
+                or not configuration.visible
+                or not configuration.editable_after_approval
+            ):
+                errors[field_key] = "This field is not editable in your profile."
+
+        if errors:
+            raise serializers.ValidationError(errors)
+        return attrs
 
 
 class PublicUserSerializer(serializers.ModelSerializer):
@@ -585,6 +643,42 @@ class LoginUnlockSerializer(serializers.Serializer):
         if not reason:
             raise serializers.ValidationError("Provide a reason for unlocking this account.")
         return reason
+
+
+class WebsiteContentUpdateSerializer(serializers.Serializer):
+    platform_name = serializers.CharField(max_length=80, required=False, allow_blank=False)
+    content = serializers.JSONField(required=False)
+    logo = serializers.ImageField(required=False)
+    favicon = serializers.ImageField(required=False)
+    hero_image = serializers.ImageField(required=False)
+    remove_logo = serializers.BooleanField(required=False)
+    remove_favicon = serializers.BooleanField(required=False)
+    remove_hero_image = serializers.BooleanField(required=False)
+
+    def validate_content(self, value):
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Website content must be an object.")
+        allowed_keys = set(default_website_content())
+        unknown_keys = set(value) - allowed_keys
+        if unknown_keys:
+            raise serializers.ValidationError(
+                f"Unsupported content fields: {', '.join(sorted(unknown_keys))}."
+            )
+        for key, text in value.items():
+            if not isinstance(text, str):
+                raise serializers.ValidationError({key: "Content values must be text."})
+            if len(text) > 2000:
+                raise serializers.ValidationError({key: "Content must be 2,000 characters or fewer."})
+        return value
+
+    def validate(self, attrs):
+        for field in ("logo", "favicon", "hero_image"):
+            image = attrs.get(field)
+            if image and (image.size <= 0 or image.size > 5 * 1024 * 1024):
+                raise serializers.ValidationError(
+                    {field: "Images must be non-empty and no larger than 5 MB."}
+                )
+        return attrs
 
 
 class PlatformSettingsUpdateSerializer(serializers.Serializer):

@@ -13,7 +13,6 @@ import {
 } from "react";
 import {
   Bell,
-  Leaf,
   LogOut,
   Menu,
   PanelLeftClose,
@@ -26,6 +25,7 @@ import { ICONS, shortRelative } from "@/lib/format";
 import { authApi, notificationsApi, walletApi } from "@/lib/api/client";
 import { Avatar, Spinner } from "@/components/ui";
 import { PresenceProvider } from "@/components/presence/PresenceProvider";
+import { BrandMark } from "@/components/branding/BrandMark";
 import { cn } from "@/lib/utils";
 import type { Notification, UserRole } from "@/lib/types";
 
@@ -416,10 +416,14 @@ function Sidebar({
           )}
         >
           <Link href="/" onClick={onClose} className="flex min-w-0 items-center gap-2">
-            <Leaf className="h-6 w-6 shrink-0" />
-            <span className={cn("truncate text-lg font-semibold", collapsed && "md:hidden")}>
-              Green Path
-            </span>
+            <BrandMark
+              className="text-white"
+              iconClassName="h-6 w-6 text-white"
+              nameClassName={cn(
+                "truncate text-lg font-semibold text-white",
+                collapsed && "md:hidden"
+              )}
+            />
           </Link>
           <button
             type="button"

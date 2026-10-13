@@ -273,6 +273,36 @@ export interface RegistrationLocation {
   has_children: boolean;
 }
 
+export interface RegistrationFormFieldConfiguration {
+  id: number;
+  field_key: string;
+  stage: "INITIAL" | "PROFILE";
+  label: string;
+  description: string;
+  required: boolean;
+  visible: boolean;
+  display_order: number;
+  roles: UserRole[];
+  options: { value: string; label: string }[];
+  editable_after_approval: boolean;
+  updated_at: string;
+}
+
+export interface ManagedAdministrativeLocation {
+  id: string;
+  source_id: string;
+  name: string;
+  alternative_names: string[];
+  level: string;
+  parent: string | null;
+  parent_name: string;
+  active: boolean;
+}
+
+export interface ManagedRegistrationProductType extends RegistrationProductType {
+  active: boolean;
+}
+
 export interface RegistrationProductType {
   id: string;
   code: string;
@@ -360,6 +390,16 @@ export interface PlatformSettings {
   lockout_duration_minutes: number;
   text_messaging_enabled: boolean;
   voice_messaging_enabled: boolean;
+  updated_at: string | null;
+  updated_by: string | null;
+}
+
+export interface WebsiteContent {
+  platform_name: string;
+  logo_url: string | null;
+  favicon_url: string | null;
+  hero_image_url: string | null;
+  content: Record<string, string>;
   updated_at: string | null;
   updated_by: string | null;
 }
@@ -593,6 +633,15 @@ export interface ChatChannel {
     sent_at: string;
   } | null;
   unread_count: number;
+}
+
+export interface StaffRecipient {
+  id: string;
+  full_name: string;
+  role: UserRole;
+  role_display: string;
+  location: string;
+  scope: string;
 }
 
 // ---------------------------------------------------------------------------

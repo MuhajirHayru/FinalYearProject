@@ -267,6 +267,7 @@ export const farmerNav: NavItem[] = [
   { label: "Messages", href: "/chat", icon: "MessageSquare", group: "Communication" },
   { label: "Notifications", href: "/notifications", icon: "Bell", group: "Communication" },
   { label: "Profile", href: "/profile", icon: "User", group: "Account" },
+  { label: "Registration details", href: "/complete-registration", icon: "FileCheck2", group: "Account" },
   { label: "Settings", href: "/settings", icon: "Settings", group: "Account" },
 ];
 
@@ -282,6 +283,7 @@ export const wholesalerNav: NavItem[] = [
   { label: "Messages", href: "/chat", icon: "MessageSquare", group: "Communication" },
   { label: "Notifications", href: "/notifications", icon: "Bell", group: "Communication" },
   { label: "Profile", href: "/profile", icon: "User", group: "Account" },
+  { label: "Registration details", href: "/complete-registration", icon: "FileCheck2", group: "Account" },
   { label: "Settings", href: "/settings", icon: "Settings", group: "Account" },
 ];
 
@@ -296,6 +298,7 @@ export const retailerNav: NavItem[] = [
   { label: "Messages", href: "/chat", icon: "MessageSquare", group: "Communication" },
   { label: "Notifications", href: "/notifications", icon: "Bell", group: "Communication" },
   { label: "Profile", href: "/profile", icon: "User", group: "Account" },
+  { label: "Registration details", href: "/complete-registration", icon: "FileCheck2", group: "Account" },
   { label: "Settings", href: "/settings", icon: "Settings", group: "Account" },
 ];
 
@@ -334,6 +337,8 @@ export const superAdminNav: NavItem[] = [
   { label: "Registration Review", href: "/admin/registrations", icon: "FileCheck2", group: "Administration" },
   { label: "Users", href: "/super-admin/users", icon: "Users", group: "Administration" },
   { label: "Admin scopes", href: "/super-admin/scopes", icon: "Settings", group: "Administration" },
+  { label: "Registration data", href: "/super-admin/reference-data", icon: "MapPin", group: "Administration" },
+  { label: "Registration forms", href: "/super-admin/registration-fields", icon: "FileCheck2", group: "Administration" },
   { label: "Listings", href: "/super-admin/listings", icon: "Tag", group: "Marketplace" },
   { label: "Payments", href: "/super-admin/payments", icon: "CreditCard", group: "Marketplace" },
   { label: "Reports", href: "/super-admin/reports", icon: "BarChart3", group: "Reporting" },

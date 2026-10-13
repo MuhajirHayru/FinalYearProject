@@ -18,6 +18,7 @@ from django.utils import timezone
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from drf_spectacular.types import OpenApiTypes
@@ -29,7 +30,15 @@ from payments.models import Order, PaymentRecord, PaymentStatus
 from products.models import Product, ProductStatus, ProductType
 from users.permissions import IsSuperAdmin, IsUserAdmin
 
-from .models import AccountStatus, AuditLog, PlatformSettings, Role, User
+from .models import (
+    AccountStatus,
+    AuditLog,
+    PlatformSettings,
+    Role,
+    User,
+    WebsiteContent,
+    default_website_content,
+)
 from .serializers import (
     AdminAccountSerializer,
     AnnouncementSerializer,
@@ -38,6 +47,7 @@ from .serializers import (
     LoginUnlockSerializer,
     PlatformSettingsUpdateSerializer,
     SuperAdminDecisionSerializer,
+    WebsiteContentUpdateSerializer,
 )
 from registrations.models import (
     AdministratorScope,
@@ -751,6 +761,129 @@ class SuperAdminDataView(APIView):
 @extend_schema(
     request=PlatformSettingsUpdateSerializer, responses=OpenApiTypes.OBJECT
 )
+class WebsiteContentAdminView(APIView):
+    """GET/PATCH /api/v1/superadmin/website-content/."""
+
+    permission_classes = [IsSuperAdmin]
+    parser_classes = [JSONParser, FormParser, MultiPartParser]
+
+    def get(self, request):
+        return Response(self._serialize(WebsiteContent.load(), request))
+
+    def patch(self, request):
+        serializer = WebsiteContentUpdateSerializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        values = dict(serializer.validated_data)
+        remove_fields = {
+            field.removeprefix("remove_"): values.pop(field, False)
+            for field in ("remove_logo", "remove_favicon", "remove_hero_image")
+        }
+        uploaded = {
+            field: values.pop(field)
+            for field in ("logo", "favicon", "hero_image")
+            if field in values
+        }
+        if not values and not uploaded and not any(remove_fields.values()):
+            raise ValidationError({"detail": "Provide at least one website content change."})
+
+        replaced_files = []
+        with transaction.atomic():
+            website = WebsiteContent.objects.select_for_update().filter(
+                pk=WebsiteContent.SINGLETON_PK
+            ).first()
+            if website is None:
+                website = WebsiteContent.load()
+                website = WebsiteContent.objects.select_for_update().get(
+                    pk=WebsiteContent.SINGLETON_PK
+                )
+
+            previous = {
+                "platform_name": website.platform_name,
+                "content": website.content,
+            }
+            changed = {}
+            if "platform_name" in values:
+                name = values["platform_name"].strip()
+                if name != website.platform_name:
+                    previous["platform_name"] = website.platform_name
+                    website.platform_name = name
+                    changed["platform_name"] = name
+            if "content" in values:
+                merged_content = {
+                    **default_website_content(),
+                    **(website.content if isinstance(website.content, dict) else {}),
+                    **values["content"],
+                }
+                if merged_content != website.content:
+                    previous["content"] = website.content
+                    website.content = merged_content
+                    changed["content"] = values["content"]
+
+            for field, image in uploaded.items():
+                old_file = getattr(website, field)
+                if old_file:
+                    replaced_files.append((old_file.storage, old_file.name))
+                setattr(website, field, image)
+                changed[field] = image.name
+            for field, should_remove in remove_fields.items():
+                if should_remove and getattr(website, field):
+                    old_file = getattr(website, field)
+                    replaced_files.append((old_file.storage, old_file.name))
+                    setattr(website, field, "")
+                    changed[field] = ""
+
+            if not changed:
+                raise ValidationError({"detail": "No website content values changed."})
+            website.updated_by = request.user
+            website.save()
+            AuditLog.objects.create(
+                actor=request.user,
+                action="website_content_updated",
+                target="website",
+                detail=json.dumps(
+                    {"previous": previous, "new": changed},
+                    sort_keys=True,
+                ),
+            )
+            for storage, name in replaced_files:
+                transaction.on_commit(lambda s=storage, n=name: s.delete(n))
+
+        return Response(
+            {
+                "success": True,
+                "website_content": self._serialize(website, request),
+            }
+        )
+
+    @staticmethod
+    def _serialize(website, request):
+        defaults = default_website_content()
+        configured = website.content if isinstance(website.content, dict) else {}
+        return {
+            "platform_name": website.platform_name or "Green Path",
+            "logo_url": (
+                request.build_absolute_uri(website.logo.url)
+                if website.logo
+                else None
+            ),
+            "favicon_url": (
+                request.build_absolute_uri(website.favicon.url)
+                if website.favicon
+                else None
+            ),
+            "hero_image_url": (
+                request.build_absolute_uri(website.hero_image.url)
+                if website.hero_image
+                else None
+            ),
+            "content": {**defaults, **configured},
+            "updated_at": website.updated_at,
+            "updated_by": (
+                website.updated_by.full_name if website.updated_by else None
+            ),
+        }
+
+
 class PlatformSettingsView(APIView):
     """GET/PATCH /api/v1/superadmin/settings/"""
 

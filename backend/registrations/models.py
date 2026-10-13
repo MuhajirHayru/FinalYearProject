@@ -117,6 +117,55 @@ class AgriculturalProductType(models.Model):
         return f"{self.name} ({self.category})"
 
 
+class RegistrationFieldConfiguration(models.Model):
+    class Stage(models.TextChoices):
+        INITIAL = "INITIAL", "Initial registration"
+        PROFILE = "PROFILE", "Profile completion"
+
+    class FieldKey(models.TextChoices):
+        FULL_NAME = "full_name", "Full name"
+        EMAIL = "email", "Email address"
+        PHONE = "phone", "Phone"
+        DATE_OF_BIRTH = "date_of_birth", "Date of birth"
+        SEX = "sex", "Sex"
+        BUSINESS_NAME = "business_name", "Business name"
+        BUSINESS_ADDRESS = "business_address", "Business address"
+        LOCATION = "location", "Administrative location"
+        PRODUCT_SELECTIONS = "product_selections", "Product interests"
+
+    field_key = models.CharField(max_length=32, choices=FieldKey.choices)
+    stage = models.CharField(max_length=16, choices=Stage.choices)
+    label = models.CharField(max_length=100)
+    description = models.CharField(max_length=300, blank=True, default="")
+    required = models.BooleanField(default=False)
+    visible = models.BooleanField(default=True)
+    display_order = models.PositiveSmallIntegerField(default=0)
+    roles = models.JSONField(default=list)
+    options = models.JSONField(default=list, blank=True)
+    editable_after_approval = models.BooleanField(default=False)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="registration_field_updates",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "registration_field_configurations"
+        ordering = ["stage", "display_order", "field_key"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["field_key", "stage"],
+                name="reg_field_stage_key_uq",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.label} ({self.stage})"
+
+
 class RegistrationStatus(models.TextChoices):
     DRAFT = "DRAFT", "Draft"
     SUBMITTED = "SUBMITTED", "Submitted"

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Camera, Save, Trash2 } from "lucide-react";
+import Link from "next/link";
 import { AppShell } from "@/components/layout/AppShell";
 import {
   Avatar,
@@ -14,12 +15,12 @@ import {
   StatusPill,
   SuccessBanner,
 } from "@/components/ui";
-import { authApi } from "@/lib/api/client";
+import { authApi, registrationApi } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/context";
 import { OnlineStatus } from "@/components/presence/PresenceProvider";
 import { FinanciallyVerifiedBadge } from "@/components/users/FinanciallyVerifiedBadge";
 import { formatDate } from "@/lib/format";
-import type { User } from "@/lib/types";
+import type { RegistrationFormFieldConfiguration, User } from "@/lib/types";
 
 const ROLES: User["role"][] = [
   "FARMER",
@@ -35,8 +36,10 @@ export default function ProfilePage() {
   const [form, setForm] = useState({
     full_name: user?.full_name ?? "",
     phone: user?.phone ?? "",
-    location: user?.location ?? "",
   });
+  const [fieldConfigurations, setFieldConfigurations] = useState<
+    RegistrationFormFieldConfiguration[]
+  >([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -52,6 +55,32 @@ export default function ProfilePage() {
     [photoPreview]
   );
 
+  useEffect(() => {
+    if (user) setForm({ full_name: user.full_name, phone: user.phone ?? "" });
+  }, [user?.id, user?.full_name, user?.phone]);
+
+  useEffect(() => {
+    if (!user) return;
+    let active = true;
+    registrationApi
+      .formFields("PROFILE", user.role)
+      .then((fields) => {
+        if (active) setFieldConfigurations(fields);
+      })
+      .catch((err: unknown) => {
+        if (active) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Could not load your profile field settings."
+          );
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [user?.role]);
+
   if (!user) {
     return (
       <AppShell title="Profile" allow={ROLES}>
@@ -62,12 +91,29 @@ export default function ProfilePage() {
     );
   }
 
+  function profileField(fieldKey: string) {
+    return fieldConfigurations.find((field) => field.field_key === fieldKey);
+  }
+
   async function save() {
     setBusy(true);
     setError("");
     setNotice("");
     try {
-      await authApi.updateProfile(form);
+      const profileData: Partial<Pick<User, "full_name" | "phone">> = {};
+      const fullNameField = fieldConfigurations.find(
+        (field) => field.field_key === "full_name"
+      );
+      const phoneField = fieldConfigurations.find(
+        (field) => field.field_key === "phone"
+      );
+      if (fullNameField?.visible && fullNameField.editable_after_approval) {
+        profileData.full_name = form.full_name;
+      }
+      if (phoneField?.visible && phoneField.editable_after_approval) {
+        profileData.phone = form.phone;
+      }
+      await authApi.updateProfile(profileData);
       await refreshUser();
       setNotice("Profile updated.");
     } catch (err) {
@@ -75,6 +121,7 @@ export default function ProfilePage() {
     } finally {
       setBusy(false);
     }
+
   }
 
   function changePhoto(file?: File) {
@@ -126,6 +173,13 @@ export default function ProfilePage() {
       setPhotoBusy(false);
     }
   }
+
+  const fullNameField = profileField("full_name");
+  const phoneField = profileField("phone");
+  const locationField = profileField("location");
+  const hasEditableContactFields = [fullNameField, phoneField].some(
+    (field) => field?.visible && field.editable_after_approval
+  );
 
   return (
     <AppShell title="Profile" allow={ROLES}>
@@ -246,35 +300,61 @@ export default function ProfilePage() {
             subtitle="Email and role are managed by a User Admin and cannot be edited here"
           />
           <div className="space-y-4 p-5">
-            <Field label="Full name" htmlFor="full_name">
-              <Input
-                id="full_name"
-                value={form.full_name}
-                onChange={(e) => setForm({ ...form, full_name: e.target.value })}
-              />
-            </Field>
+            {fullNameField?.visible && fullNameField.editable_after_approval && (
+              <Field
+                label={fullNameField.label}
+                htmlFor="full_name"
+                hint={fullNameField.description}
+              >
+                <Input
+                  id="full_name"
+                  required={fullNameField.required}
+                  value={form.full_name}
+                  onChange={(e) => setForm({ ...form, full_name: e.target.value })}
+                />
+              </Field>
+            )}
             <Field label="Email" htmlFor="email" hint="Contact a User Admin to change this.">
               <Input id="email" value={user.email} disabled />
             </Field>
-            <Field label="Phone" htmlFor="phone">
-              <Input
-                id="phone"
-                value={form.phone}
-                onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                placeholder="+251 9xx xxx xxx"
-              />
-            </Field>
-            <Field label="Location" htmlFor="location">
-              <Input
-                id="location"
-                value={form.location}
-                onChange={(e) => setForm({ ...form, location: e.target.value })}
-                placeholder="Konga, Yirgalem"
-              />
-            </Field>
+            {phoneField?.visible && phoneField.editable_after_approval && (
+              <Field
+                label={phoneField.label}
+                htmlFor="phone"
+                hint={phoneField.description}
+              >
+                <Input
+                  id="phone"
+                  required={phoneField.required}
+                  value={form.phone}
+                  onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                  placeholder="+251 9xx xxx xxx"
+                />
+              </Field>
+            )}
+            {locationField?.visible && (
+              <div className="text-sm">
+                <p className="font-medium text-gray-700">
+                  {locationField.label}
+                </p>
+                <p className="mt-1 text-gray-600">
+                  {user.location || "No location selected"}
+                </p>
+                {locationField.editable_after_approval &&
+                  ["FARMER", "WHOLESALER", "RETAILER"].includes(user.role) && (
+                    <Link
+                      href="/complete-registration"
+                      className="mt-1 inline-block font-medium text-emerald-700 hover:text-emerald-800"
+                    >
+                      Update in registration details
+                    </Link>
+                  )}
+              </div>
+            )}
             <div className="flex items-center gap-3">
               <Button
                 loading={busy}
+                disabled={!hasEditableContactFields}
                 icon={<Save className="h-4 w-4" />}
                 onClick={() => void save()}
               >

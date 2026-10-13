@@ -11,6 +11,7 @@ from .superadmin_views import (
     SuperAdminDataView,
     SuperAdminUsersListView,
     SystemHealthView,
+    WebsiteContentAdminView,
 )
 
 router = DefaultRouter()
@@ -30,6 +31,11 @@ urlpatterns = router.urls + [
     ),
     # FR-SA-04
     path("settings/", PlatformSettingsView.as_view(), name="superadmin_settings"),
+    path(
+        "website-content/",
+        WebsiteContentAdminView.as_view(),
+        name="superadmin_website_content",
+    ),
     path("announcement/", AnnouncementBroadcastView.as_view(), name="superadmin_announcement"),
     # FR-SA-05
     path("health/", SystemHealthView.as_view(), name="superadmin_health"),
