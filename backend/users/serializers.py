@@ -437,88 +437,121 @@ class LoginSerializer(serializers.Serializer):
     def validate(self, attrs):
         error = None
         login_error = None
-        user = None
-        with transaction.atomic():
-            user = (
-                User.objects.select_for_update()
-                .filter(email__iexact=attrs["email"].strip())
-                .first()
-            )
-            if user is None:
-                error = "Invalid email or password."
+        user = User.objects.filter(email__iexact=attrs["email"].strip()).first()
+        if user is None:
+            error = "Invalid email or password."
+        else:
+            now = timezone.now()
+            if user.locked_until and user.locked_until > now:
+                policy = PlatformSettings.load()
+                error = "Sign-in is temporarily locked."
+                login_error = self._login_error(
+                    error,
+                    attempts_remaining=0,
+                    max_attempts=policy.max_failed_login_attempts,
+                    locked_until=user.locked_until,
+                )
             else:
-                now = timezone.now()
-                is_locked = user.locked_until and user.locked_until > now
                 password_matches = user.check_password(attrs["password"])
-                if is_locked:
-                    policy = PlatformSettings.load()
-                    error = "Sign-in is temporarily locked."
-                    login_error = self._login_error(
-                        error,
-                        attempts_remaining=0,
-                        max_attempts=policy.max_failed_login_attempts,
-                        locked_until=user.locked_until,
+                verified_password_hash = user.password
+                with transaction.atomic():
+                    user = (
+                        User.objects.select_for_update()
+                        .filter(pk=user.pk)
+                        .first()
                     )
-                elif not password_matches:
-                    user.failed_login_attempts += 1
-                    policy = PlatformSettings.load()
-                    if user.failed_login_attempts >= policy.max_failed_login_attempts:
-                        user.locked_until = now + timedelta(
-                            minutes=policy.lockout_duration_minutes
-                        )
-                        user.failed_login_attempts = 0
-                        AuditLog.objects.create(
-                            actor=None,
-                            action="account_login_locked",
-                            target=str(user.pk),
-                            detail=(
-                                "Account locked after consecutive failed password "
-                                f"attempts for {policy.lockout_duration_minutes} minutes."
-                            ),
-                        )
+                    if user is None:
+                        error = "Invalid email or password."
                     else:
-                        AuditLog.objects.create(
-                            actor=None,
-                            action="account_login_failed",
-                            target=str(user.pk),
-                            detail="Invalid password.",
-                        )
-                    user.save(
-                        update_fields=["failed_login_attempts", "locked_until"]
-                    )
-                    error = "Invalid email or password."
-                    login_error = self._login_error(
-                        error,
-                        attempts_remaining=(
-                            0
-                            if user.locked_until and user.locked_until > now
-                            else max(
-                                0,
-                                policy.max_failed_login_attempts
-                                - user.failed_login_attempts,
+                        now = timezone.now()
+                        if user.locked_until and user.locked_until > now:
+                            policy = PlatformSettings.load()
+                            error = "Sign-in is temporarily locked."
+                            login_error = self._login_error(
+                                error,
+                                attempts_remaining=0,
+                                max_attempts=policy.max_failed_login_attempts,
+                                locked_until=user.locked_until,
                             )
-                        ),
-                        max_attempts=policy.max_failed_login_attempts,
-                        locked_until=user.locked_until,
-                    )
-                else:
-                    if user.failed_login_attempts or user.locked_until:
-                        user.failed_login_attempts = 0
-                        user.locked_until = None
-                        user.save(
-                            update_fields=["failed_login_attempts", "locked_until"]
-                        )
-                    if user.status == AccountStatus.PENDING:
-                        error = "Your account is pending admin approval."
-                    elif user.status in (
-                        AccountStatus.REJECTED,
-                        AccountStatus.DEACTIVATED,
-                    ):
-                        error = f"Your account is {user.get_status_display().lower()}."
-                    elif user.status == AccountStatus.SUSPENDED:
-                        error = "Your account is suspended."
-                    elif not user.is_active:
-                        error = "Your account is not active."
+                        else:
+                            if user.password != verified_password_hash:
+                                password_matches = user.check_password(attrs["password"])
+                            if not password_matches:
+                                user.failed_login_attempts += 1
+                                policy = PlatformSettings.load()
+                                if (
+                                    user.failed_login_attempts
+                                    >= policy.max_failed_login_attempts
+                                ):
+                                    user.locked_until = now + timedelta(
+                                        minutes=policy.lockout_duration_minutes
+                                    )
+                                    user.failed_login_attempts = 0
+                                    AuditLog.objects.create(
+                                        actor=None,
+                                        action="account_login_locked",
+                                        target=str(user.pk),
+                                        detail=(
+                                            "Account locked after consecutive failed "
+                                            "password attempts for "
+                                            f"{policy.lockout_duration_minutes} minutes."
+                                        ),
+                                    )
+                                else:
+                                    AuditLog.objects.create(
+                                        actor=None,
+                                        action="account_login_failed",
+                                        target=str(user.pk),
+                                        detail="Invalid password.",
+                                    )
+                                user.save(
+                                    update_fields=[
+                                        "failed_login_attempts",
+                                        "locked_until",
+                                    ]
+                                )
+                                error = "Invalid email or password."
+                                login_error = self._login_error(
+                                    error,
+                                    attempts_remaining=(
+                                        0
+                                        if user.locked_until
+                                        and user.locked_until > now
+                                        else max(
+                                            0,
+                                            policy.max_failed_login_attempts
+                                            - user.failed_login_attempts,
+                                        )
+                                    ),
+                                    max_attempts=policy.max_failed_login_attempts,
+                                    locked_until=user.locked_until,
+                                )
+                            else:
+                                if user.failed_login_attempts or user.locked_until:
+                                    user.failed_login_attempts = 0
+                                    user.locked_until = None
+                                    user.save(
+                                        update_fields=[
+                                            "failed_login_attempts",
+                                            "locked_until",
+                                        ]
+                                    )
+                                if user.status == AccountStatus.PENDING:
+                                    error = (
+                                        "Your account is pending admin approval."
+                                    )
+                                elif user.status in (
+                                    AccountStatus.REJECTED,
+                                    AccountStatus.DEACTIVATED,
+                                ):
+                                    error = (
+                                        "Your account is "
+                                        f"{user.get_status_display().lower()}."
+                                    )
+                                elif user.status == AccountStatus.SUSPENDED:
+                                    error = "Your account is suspended."
+                                elif not user.is_active:
+                                    error = "Your account is not active."
         if login_error:
             raise login_error
         if error:

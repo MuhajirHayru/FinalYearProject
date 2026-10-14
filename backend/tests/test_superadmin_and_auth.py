@@ -5,6 +5,7 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 from django.core import mail
+from django.core.cache import cache
 from django.conf import settings
 from django.utils import timezone
 from django.test import override_settings
@@ -15,6 +16,13 @@ from registrations.models import RegistrationStatus, UserRegistration
 from users.models import AccountStatus, AuditLog, PlatformSettings, Role, User
 
 pytestmark = pytest.mark.django_db
+
+
+@pytest.fixture
+def isolated_login_throttle():
+    cache.clear()
+    yield
+    cache.clear()
 
 
 def _payload(**overrides):
@@ -126,6 +134,130 @@ def test_login_rejects_a_wrong_password(api, farmer):
     assert response.data["max_attempts"] == 3
     farmer.refresh_from_db()
     assert farmer.failed_login_attempts == 1
+
+
+def test_locked_login_does_not_verify_password(
+    api, farmer, monkeypatch, isolated_login_throttle
+):
+    farmer.locked_until = timezone.now() + timedelta(minutes=5)
+    farmer.save(update_fields=["locked_until"])
+
+    def unexpected_password_check(*args, **kwargs):
+        raise AssertionError("Password hashing must be skipped for locked accounts.")
+
+    monkeypatch.setattr(User, "check_password", unexpected_password_check)
+    response = api.post(
+        "/api/v1/auth/login/",
+        {"email": farmer.email, "password": "incorrect"},
+        format="json",
+    )
+
+    assert response.status_code == 400
+    assert "temporarily locked" in str(response.data).lower()
+
+
+def test_password_hash_check_runs_outside_the_account_lock(
+    api, farmer, monkeypatch, isolated_login_throttle
+):
+    from contextlib import contextmanager
+    from users.serializers import transaction as serializer_transaction
+
+    original_check_password = User.check_password
+    original_atomic = serializer_transaction.atomic
+    lock_active = False
+    observed_transactions = []
+
+    @contextmanager
+    def observe_atomic(*args, **kwargs):
+        nonlocal lock_active
+        with original_atomic(*args, **kwargs):
+            lock_active = True
+            try:
+                yield
+            finally:
+                lock_active = False
+
+    def inspect_transaction(user, raw_password):
+        observed_transactions.append(lock_active)
+        return original_check_password(user, raw_password)
+
+    monkeypatch.setattr(serializer_transaction, "atomic", observe_atomic)
+    monkeypatch.setattr(User, "check_password", inspect_transaction)
+    response = api.post(
+        "/api/v1/auth/login/",
+        {"email": farmer.email, "password": "incorrect"},
+        format="json",
+    )
+
+    assert response.status_code == 400
+    assert observed_transactions == [False]
+
+
+def test_login_does_not_repeat_check_after_password_hash_upgrade(
+    api, farmer, monkeypatch, isolated_login_throttle
+):
+    check_count = 0
+
+    def upgrade_password_hash(user, raw_password):
+        nonlocal check_count
+        check_count += 1
+        if check_count > 1:
+            raise AssertionError("An upgraded password hash must not be checked twice.")
+        user.password = "simulated-upgraded-password-hash"
+        user.save(update_fields=["password"])
+        return True
+
+    monkeypatch.setattr(User, "check_password", upgrade_password_hash)
+    response = api.post(
+        "/api/v1/auth/login/",
+        {"email": farmer.email, "password": "demo1234"},
+        format="json",
+    )
+
+    assert response.status_code == 200, response.data
+    assert check_count == 1
+
+
+def test_failed_login_reloads_counter_after_hash_verification(
+    api, farmer, monkeypatch, isolated_login_throttle
+):
+    farmer.failed_login_attempts = 1
+    farmer.save(update_fields=["failed_login_attempts"])
+
+    def complete_competing_failure(user, raw_password):
+        User.objects.filter(pk=user.pk).update(failed_login_attempts=2)
+        return False
+
+    monkeypatch.setattr(User, "check_password", complete_competing_failure)
+    response = api.post(
+        "/api/v1/auth/login/",
+        {"email": farmer.email, "password": "incorrect"},
+        format="json",
+    )
+
+    assert response.status_code == 400
+    farmer.refresh_from_db()
+    assert farmer.failed_login_attempts == 0
+    assert farmer.locked_until is not None
+
+
+def test_login_after_lockout_expiration_resets_lock_state(
+    api, farmer, isolated_login_throttle
+):
+    farmer.failed_login_attempts = 2
+    farmer.locked_until = timezone.now() - timedelta(seconds=1)
+    farmer.save(update_fields=["failed_login_attempts", "locked_until"])
+
+    response = api.post(
+        "/api/v1/auth/login/",
+        {"email": farmer.email, "password": "demo1234"},
+        format="json",
+    )
+
+    assert response.status_code == 200
+    farmer.refresh_from_db()
+    assert farmer.failed_login_attempts == 0
+    assert farmer.locked_until is None
 
 
 def test_login_locks_after_configured_consecutive_failures(api, farmer):
