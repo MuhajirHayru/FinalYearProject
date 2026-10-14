@@ -11,6 +11,9 @@
  * Errors are always `{ success: false, error: string | Record<string, string[]> }`.
  */
 import type {
+  AssistantConversation,
+  AssistantLanguage,
+  AssistantMessage,
   AdminAccount,
   AdminAccountActivity,
   AdminCreationOptions,
@@ -686,6 +689,31 @@ export const chatApi = {
     post<{ success: true; updated: number }>(
       `/chat/channels/${id}/mark-read/`
     ),
+};
+
+// ---------------------------------------------------------------------------
+// AI assistant
+// ---------------------------------------------------------------------------
+
+export const assistantApi = {
+  conversations: () => get<Paginated<AssistantConversation>>("/assistant/conversations/"),
+  createConversation: (language: AssistantLanguage) =>
+    post<AssistantConversation>("/assistant/conversations/", { language }),
+  deleteConversation: (id: string) =>
+    del<void>(`/assistant/conversations/${id}/`),
+  messages: (id: string) =>
+    get<Paginated<AssistantMessage>>(`/assistant/conversations/${id}/messages/`),
+  sendMessage: (id: string, content: string, language: AssistantLanguage) =>
+    post<{
+      user_message: AssistantMessage;
+      assistant_message: AssistantMessage;
+    }>(`/assistant/conversations/${id}/messages/`, { content, language }),
+  transcribe: (audio: File, language: AssistantLanguage) => {
+    const body = new FormData();
+    body.append("audio", audio);
+    body.append("language", language);
+    return postFormData<{ text: string }>("/assistant/transcribe/", body);
+  },
 };
 
 // ---------------------------------------------------------------------------

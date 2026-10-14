@@ -10,6 +10,23 @@ export type UserRole =
   | "FINANCIAL_MANAGER"
   | "SUPER_ADMIN";
 
+export type AssistantLanguage = "auto" | "en" | "am" | "om";
+
+export interface AssistantConversation {
+  id: string;
+  title: string;
+  language: AssistantLanguage;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AssistantMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  created_at: string;
+}
+
 export type AccountStatus =
   | "PENDING"
   | "APPROVED"

@@ -25,6 +25,7 @@ import { ICONS, shortRelative } from "@/lib/format";
 import { authApi, notificationsApi, walletApi } from "@/lib/api/client";
 import { Avatar, Spinner } from "@/components/ui";
 import { PresenceProvider } from "@/components/presence/PresenceProvider";
+import { AssistantWidget } from "@/components/layout/AssistantWidget";
 import { BrandMark } from "@/components/branding/BrandMark";
 import { cn } from "@/lib/utils";
 import type { Notification, UserRole } from "@/lib/types";
@@ -646,6 +647,7 @@ export function AppShell({
             <Announcement />
             <main className="flex-1 overflow-y-auto p-5 lg:p-8">{children}</main>
           </div>
+          <AssistantWidget />
         </div>
       </UnreadProvider>
     </PresenceProvider>

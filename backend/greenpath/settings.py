@@ -7,6 +7,25 @@ from corsheaders.defaults import default_headers
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+_local_env = BASE_DIR / ".env"
+if _local_env.is_file():
+    for _line_number, _line in enumerate(
+        _local_env.read_text(encoding="utf-8").splitlines(), start=1
+    ):
+        _line = _line.strip()
+        if not _line or _line.startswith("#"):
+            continue
+        _name, _separator, _value = _line.partition("=")
+        _name = _name.strip()
+        if not _separator or not _name:
+            raise RuntimeError(
+                f"Invalid environment setting in {_local_env.name} on line {_line_number}."
+            )
+        _value = _value.strip()
+        if len(_value) >= 2 and _value[0] == _value[-1] and _value[0] in ("'", '"'):
+            _value = _value[1:-1]
+        os.environ.setdefault(_name, _value)
+
 SECRET_KEY = os.environ.get(
     "DJANGO_SECRET_KEY",
     "django-insecure-greenpath-dev-key-change-in-production",
@@ -49,6 +68,7 @@ INSTALLED_APPS = [
     "users",
     "products",
     "chat",
+    "assistant",
     "payments",
     "notifications",
     "dashboard",
@@ -168,8 +188,18 @@ REST_FRAMEWORK = {
         "login": "20/minute",
         "password_reset_request": "5/hour",
         "password_reset_confirm": "10/hour",
+        "assistant_chat": "10/minute",
+        "assistant_transcription": "6/minute",
     },
 }
+
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+GROQ_CHAT_MODEL = os.environ.get("GROQ_CHAT_MODEL", "")
+GROQ_TRANSCRIPTION_MODEL = os.environ.get(
+    "GROQ_TRANSCRIPTION_MODEL", "whisper-large-v3-turbo"
+)
+GROQ_TIMEOUT_SECONDS = int(os.environ.get("GROQ_TIMEOUT_SECONDS", "30"))
+GROQ_MAX_AUDIO_BYTES = 10 * 1024 * 1024
 
 SPECTACULAR_SETTINGS = {
     "TITLE": "Green Path API",
